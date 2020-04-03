@@ -8,7 +8,7 @@
  *
  * Author:   Christian Reinhardt
  * Created:  02.04.2020
- * Modified: 02.04.2020
+ * Modified: 03.04.2020
  */
 #include <stdlib.h>
 #include <math.h>
@@ -95,6 +95,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
         exit(1);
     }
 
+    fprintf(stderr, "Done.\n");
     /*
      * Convert from cgs to code units.
      */
@@ -194,6 +195,7 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT) {
     for (i=0; i<nT; i++) {
         Mat->dLogUArray[i] = (double *) calloc(nRho, sizeof(double));
         Mat->dLogPArray[i] = (double *) calloc(nRho, sizeof(double));
+        Mat->dLogSArray[i] = (double *) calloc(nRho, sizeof(double));
     }
 
     if ((Mat->dLogRhoAxis == NULL) || (Mat->dLogTAxis == NULL) || (Mat->dLogUArray == NULL) ||
