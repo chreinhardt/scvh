@@ -29,9 +29,9 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     const double GCGS = 6.67e-8;         /* G in cgs */
     const double KPCCM = 3.085678e21;    /* kiloparsec in centimeters */
     const double NA = 6.022e23;          /* Avogadro's number */
-    SCVHEOS *Mat;
-    int nLogRho;
-    int nLogT;
+    SCVHEOSMAT *Mat;
+    int nRho;
+    int nT;
     char inFile[256];
     int i, j;
 
@@ -48,8 +48,8 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     Mat->iMat = iMat;
     Mat->dKpcUnit = dKpcUnit;
     Mat->dMsolUnit = dMsolUnit;
-    Mat->nLogRho = 0;
-    Mat->nLogT = 0;
+    Mat->nRho = 0;
+    Mat->nT = 0;
 
     /*
      * Load the EOS table.
@@ -69,16 +69,16 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
              * Helium.
              */
             strcpy(inFile, "scvh_he_dt_cgs.txt");
-            nRho = 98;
-            nT = 22;
+            nRho = 201;
+            nT = 100;
             break;
         case SCVHEOS_HHE:
             /*
              * Hydrogen / Helium mixture in Solar abundance.
              */
             strcpy(inFile, "scvh_hhe_y0.275_dt_cgs.txt");
-            nRho = 105;
-            nT = 42;
+            nRho = 201;
+            nT = 100;
             break;
         default:
             /* Unknown material */
@@ -115,7 +115,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
 /*
  * Free memory.
  */
-void scvheosFinalizeMaterial(SCVHEOSMAT *Mat) {
+int scvheosFinalizeMaterial(SCVHEOSMAT *Mat) {
     int i;
 
     if (Mat != NULL) {
@@ -152,6 +152,8 @@ void scvheosFinalizeMaterial(SCVHEOSMAT *Mat) {
 
         free(Mat);
     }
+
+    return SCVHEOS_SUCCESS;
 }
 
 /*
@@ -161,8 +163,8 @@ void scvheosFinalizeMaterial(SCVHEOSMAT *Mat) {
  *
  * SCVHEOS: 
  *
- * H:  nRho = 105, nT = 42, logarithmic spacing (base 10)
- * He: nRho =  98, nT = 22, logarithmic spacing (base 10)
+ * H:  nRho = 201, nT = 100, logarithmic spacing (base 10)
+ * He: nRho = 201, nT = 100, logarithmic spacing (base 10)
  */
 int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT) {
     FILE *fp;
@@ -241,7 +243,7 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT) {
 
     return SCVHEOS_SUCCESS;
 }
-
+#if 0
 /*
  * Generate an array that contains the sound speed at each EOS table data point.
  * 
@@ -671,3 +673,4 @@ double interpolateValueBilinearLog(double rho, double T, int nT, int nRho, doubl
     return pow(10.0, z);
     //return z;
 }
+#endif
