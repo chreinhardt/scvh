@@ -13,7 +13,7 @@
 #include "scvheos.h"
 
 int main(int argc, char **argv) {
-	REOS3MAT *Mat;
+    SCVHEOSMAT *Mat;
     int iMat = SCVHEOS_H;
     double dKpcUnit = 0.0;
 	double dMsolUnit = 0.0;
