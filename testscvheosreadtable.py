@@ -38,7 +38,7 @@ def main():
 
     # Adjust Line Width and Marker Size
     rcParams['lines.markersize']  = 5
-    rcParams['lines.linewidth']  = 0.1
+    rcParams['lines.linewidth']  = 0.5
 
     # Restore classic font used for math
     rcParams['mathtext.fontset'] = 'cm'
@@ -114,8 +114,8 @@ def main():
 
     # Plot all isotherms
     for i in range(0, nT):
-        plot(logrho_table, logP_array[i], '-', linewidth=1)
-        plot(logrho, logP[:,i], '--', linewidth=1)
+        plot(logrho_table, logP_array[i], '-')
+        plot(logrho, logP[:,i], '--')
 
     xlabel("Log Density")
     ylabel("Log Pressure")
@@ -155,8 +155,8 @@ def main():
 
     # Plot all isotherms
     for i in range(0, nT):
-        plot(logrho_table, logu_array[i], '-', linewidth=1)
-        plot(logrho, logu[:,i], '--', linewidth=1)
+        plot(logrho_table, logu_array[i], '-')
+        plot(logrho, logu[:,i], '--')
 
     xlabel("Log Density")
     ylabel("Log Internal Energy")
@@ -199,8 +199,8 @@ def main():
 
     # Plot all isotherms
     for i in range(0, nT):
-        plot(logrho_table, logs_array[i], '-', linewidth=1)
-        plot(logrho, logs[:,i], '--', linewidth=1)
+        plot(logrho_table, logs_array[i], '-')
+        plot(logrho, logs[:,i], '--')
 
     xlabel("Log Density")
     ylabel("Log Entropy")
