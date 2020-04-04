@@ -36,6 +36,10 @@ def main():
     rcParams['ytick.labelsize']  = 'x-small'
     rcParams['axes.labelsize']   = 'small'
 
+    # Adjust Line Width and Marker Size
+    rcParams['lines.markersize']  = 5
+    rcParams['lines.linewidth']  = 0.1
+
     # Restore classic font used for math
     rcParams['mathtext.fontset'] = 'cm'
     rcParams['mathtext.rm']      = 'serif'
@@ -49,108 +53,173 @@ def main():
     """
     SCVH EOS table for H.
     """
-    data = numpy.loadtxt("scvh_h_dt_cgs.csv", delimiter=",", skiprows=1)
-    
+    data = numpy.loadtxt("scvh_h_dt_cgs.csv", delimiter=",", skiprows=1) 
+    #data = numpy.loadtxt("scvh_he_dt_cgs.csv", delimiter=",", skiprows=1)
+    #data = numpy.loadtxt("scvh_hhe_y0.275_dt_cgs.csv", delimiter=",", skiprows=1)
+
     logT_table    = data[:, 0] 
     logrho_table  = data[:, 1]
     logP_table    = data[:, 2]
     logu_table    = data[:, 3]
-    logu_table    = data[:, 4]
+    logs_table    = data[:, 4]
 
-    print numpy.where(logrho_table == logrho_table[0])
-    print numpy.where(logT_table == logT_table[0])
-
-    exit(1)
+    # All EOS tables obtained from Ravit have the same size
     nRho = 201
-    nT   = 42
-    
-    rho_min = numpy.min(rho_table)
-    rho_max = numpy.max(rho_table)
-    T_min   = numpy.min(T_table)
-    T_max   = numpy.max(T_table)
+    nT   = 100
 
-    print "rho_min=", rho_min
-    print "rho_max=", rho_max
-    print "T_min  =", T_min
-    print "T_max  =", T_max
+    print "nRho=", nRho
+    print "nT=", nT
 
-    rho_table = rho_table[0:nRho]
-    T_table = T_table[0:numpy.size(T_table):nRho]
+    logrho_table = logrho_table[0:nRho]
+    logT_table = logT_table[0:numpy.size(logT_table):nRho]
 
-    print "rho_table=", rho_table
-    print "T_table  =", T_table
+    logrho_min = numpy.min(logrho_table)
+    logrho_max = numpy.max(logrho_table)
+    logT_min   = numpy.min(logT_table)
+    logT_max   = numpy.max(logT_table)
+
+    print "logrho_min=", logrho_min
+    print "logrho_max=", logrho_max
+    print "logT_min  =", logT_min
+    print "logT_max  =", logT_max
+
+    print "logrho_table=", logrho_table
+    print "logT_table  =", logT_table
     print
-    
+
     # Split into arrays of constant T
-    P_array = numpy.split(P_table, nT)
-    u_array = numpy.split(u_table, nT)
+    logP_array = numpy.split(logP_table, nT)
+    logu_array = numpy.split(logu_table, nT)
+    logs_array = numpy.split(logs_table, nT)
     
+    eps = 1e-6
+
     """
     Pressure.
     """
     # Read P(rho) for different T 
-    data = numpy.loadtxt("testreos3_h_p_rho.txt")
+    data = numpy.loadtxt("testscvheos_h_p_rho.txt")
 
-    rho = data[:,0]
-    P   = data[:,1:nT+1]
+    logrho = data[:,0]
+    logP   = data[:,1:nT+1]
+
+    # Verify that the two tables agree
+    index = numpy.where(numpy.abs(logP.transpose()-logP_array) > eps)
+
+    if (numpy.size(index) > 0):
+        print "Pressure differs:", index
+        print "eps=", eps
+        print "Check failed."
+        exit(1)
 
     # Plot all isotherms
     for i in range(0, nT):
-        loglog(rho_table, P_array[i], '-', linewidth=1)
-        loglog(rho, P[:,i], '--', linewidth=1)
+        plot(logrho_table, logP_array[i], '-', linewidth=1)
+        plot(logrho, logP[:,i], '--', linewidth=1)
 
-    xlabel("Density [g cm$^{-3}$]")
-    ylabel("Pressure [GPa]")
+    xlabel("Log Density")
+    ylabel("Log Pressure")
 
-    savefig('testreos3readtable_pofrho.png', dpi=300, bbox_inches='tight')
+    savefig('testscvheosreadtable_h_pofrho.png', dpi=300, bbox_inches='tight')
 
-    show()
+    # Plot the difference in pressure between the two tables 
+    imshow(numpy.abs(logP.transpose()-logP_array))
+    colorbar()
+
+    title("Pressure")
+    xlabel("Density")
+    ylabel("Temperature")
+
+    savefig('testscvheosreadtable_h_pressure.png', dpi=300, bbox_inches='tight')
+
     fig = gcf()
     fig.clear()
-    exit(1)
-
 
     """
     Internal energy.
     """
     # Read u(rho) for different T 
-    data = numpy.loadtxt("testreos3_h_u_rho.txt")
+    data = numpy.loadtxt("testscvheos_h_u_rho.txt")
 
-    rho = data[:,0]
-    u   = data[:,1:nT+1]
+    logrho = data[:,0]
+    logu   = data[:,1:nT+1]
+    
+    # Verify that the two tables agree
+    index = numpy.where(numpy.abs(logu.transpose()-logu_array) > eps)
+
+    if (numpy.size(index) > 0):
+        print "Internal energy differs:", index
+        print "eps=", eps
+        print "Check failed."
+        exit(1)
 
     # Plot all isotherms
     for i in range(0, nT):
-        semilogx(rho_table, u_array[i], '-', linewidth=1)
-        semilogx(rho, u[:,i], '--', linewidth=1)
+        plot(logrho_table, logu_array[i], '-', linewidth=1)
+        plot(logrho, logu[:,i], '--', linewidth=1)
 
-    xlabel("Density [g cm$^{-3}$]")
-    ylabel("Internal energy [kJ g${-1}$]")
+    xlabel("Log Density")
+    ylabel("Log Internal Energy")
 
-    savefig('testreos3readtable_uofrho.png', dpi=300, bbox_inches='tight')
+    savefig('testscvheosreadtable_uofrho.png', dpi=300, bbox_inches='tight')
 
-    show()
     fig = gcf()
     fig.clear()
-    exit(1)
 
-    # Read u(T) for different rho
-    data = numpy.loadtxt("testreos3_h_u_T.txt")
+    # Plot the difference in internal energy between the two tables 
+    imshow(numpy.abs(logu.transpose()-logu_array))
+    colorbar()
 
-    T = data[:,0]
-    u = data[:,1:nRho+1]
+    title("Internal energy")
+    xlabel("Density")
+    ylabel("Temperature")
 
-    # Plot all curves of constant rho
-    for i in range(0, nRho):
-        semilogx(T_table, u_array[i], '-', linewidth=1)
-        semilogx(T, u[:,i], '--', linewidth=1)
+    savefig('testscvheosreadtable_h_intenergy.png', dpi=300, bbox_inches='tight')
 
-    xlabel("Temperature [K]")
-    ylabel("Internal energy [kJ g${-1}$]")
+    fig = gcf()
+    fig.clear()
 
-    savefig('testreos3u_uofT.png', dpi=300, bbox_inches='tight')
+    """
+    Entropy.
+    """
+    # Read s(rho) for different T 
+    data = numpy.loadtxt("testscvheos_h_s_rho.txt")
 
-    show()
+    logrho = data[:,0]
+    logs   = data[:,1:nT+1]
+
+    # Verify that the two tables agree
+    index = numpy.where(numpy.abs(logs.transpose()-logs_array) > eps)
+
+    if (numpy.size(index) > 0):
+        print "Entropy differs:", index
+        print "eps=", eps
+        print "Check failed."
+        exit(1)
+
+    # Plot all isotherms
+    for i in range(0, nT):
+        plot(logrho_table, logs_array[i], '-', linewidth=1)
+        plot(logrho, logs[:,i], '--', linewidth=1)
+
+    xlabel("Log Density")
+    ylabel("Log Entropy")
+
+    savefig('testscvheosreadtable_sofrho.png', dpi=300, bbox_inches='tight')
+
+    fig = gcf()
+    fig.clear()
+
+    # Plot the difference in internal energy between the two tables 
+    imshow(numpy.abs(logs.transpose()-logs_array))
+    colorbar()
+
+    title("Entropy")
+    xlabel("Density")
+    ylabel("Temperature")
+
+    savefig('testscvheosreadtable_h_entropy.png', dpi=300, bbox_inches='tight')
+
     exit(0)
 
 if __name__ == '__main__':
