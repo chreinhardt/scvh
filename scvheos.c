@@ -230,7 +230,7 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT) {
             }
 
             if ((pow(10.0, Mat->dLogRhoAxis[j]) < 0.0) || (pow(10.0, Mat->dLogTAxis[i]) < 0.0) || 
-                    (pow(10.0, Mat->dLogUArray[i][j]) < 0.0) || (pow(10.0, Mat->dLogSArray[i][j]) < 0.0)) {
+                (pow(10.0, Mat->dLogUArray[i][j]) < 0.0) || (pow(10.0, Mat->dLogSArray[i][j]) < 0.0)) {
                 return SCVHEOS_FAIL;
             }
         }
