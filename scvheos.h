@@ -3,7 +3,7 @@
  *
  * Author:   Christian Reinhardt
  * Created:  02.04.2020
- * Modified: 02.04.2020
+ * Modified: 05.04.2020
  */
 #ifndef SCVHEOS_HINCLUDED
 #define SCVHEOS_HINCLUDED
@@ -54,6 +54,7 @@ typedef struct scvheosMat {
     double **dLogSArray;
     double **dLogCArray;
 
+    double dLogBase;
 } SCVHEOSMAT;
 
 /* Functions to initialize and finalize materials. */

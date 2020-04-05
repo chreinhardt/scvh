@@ -8,7 +8,7 @@
  *
  * Author:   Christian Reinhardt
  * Created:  02.04.2020
- * Modified: 03.04.2020
+ * Modified: 05.04.2020
  */
 #include <stdlib.h>
 #include <math.h>
@@ -49,6 +49,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     Mat->dMsolUnit = dMsolUnit;
     Mat->nRho = 0;
     Mat->nT = 0;
+    Mat->dLogBase = 10.0;
 
     /*
      * Load the EOS table.
@@ -229,8 +230,10 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT) {
                 return SCVHEOS_FAIL;
             }
 
-            if ((pow(10.0, Mat->dLogRhoAxis[j]) < 0.0) || (pow(10.0, Mat->dLogTAxis[i]) < 0.0) || 
-                (pow(10.0, Mat->dLogUArray[i][j]) < 0.0) || (pow(10.0, Mat->dLogSArray[i][j]) < 0.0)) {
+            if ((pow(Mat->dLogBase, Mat->dLogRhoAxis[j]) < 0.0) ||
+                (pow(Mat->dLogBase, Mat->dLogTAxis[i]) < 0.0) ||
+                (pow(Mat->dLogBase, Mat->dLogUArray[i][j]) < 0.0) ||
+                (pow(Mat->dLogBase, Mat->dLogSArray[i][j]) < 0.0)) {
                 return SCVHEOS_FAIL;
             }
         }
