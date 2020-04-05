@@ -66,7 +66,7 @@ def main():
 
     print numpy.where(logrho_table == logrho_table[0])
 
-    # All EOS tables obtained from Ravit have the same size
+    # All SCVH EOS tables obtained from Ravit have the same size
     nRho = 201
     nT   = 100
 
@@ -116,9 +116,6 @@ def main():
     # Plot all isotherms
     for i in range(0, nT):
         plot(logrho_table, logP_array[i], '-', linewidth=1)
-        #loglog(10**logrho_table, 10**logP_array[i], '-', linewidth=1)
-        #loglog(rho_table, P_array[i], '-', linewidth=1)
-        #loglog(rho, P[:,i], '--', linewidth=1)
 
     """
     # Now plot the isotherms below logT=2.0
@@ -138,8 +135,6 @@ def main():
 
     xlabel("Log Density")
     ylabel("Log Pressure")
-    #xlabel("Density [g cm$^{-3}$]")
-    #ylabel("Pressure [GPa]")
 
     savefig('ploteostable_original_h_pofrho.png', dpi=300, bbox_inches='tight')
 
@@ -161,7 +156,6 @@ def main():
     show()
     fig = gcf()
     fig.clear()
-    exit(1)
 
     # Read u(T) for different rho
     data = numpy.loadtxt("testreos3_h_u_T.txt")
