@@ -16,6 +16,7 @@
 #include <assert.h>
 #include <string.h>
 #include "scvheos.h"
+#include "interpBilinear.h"
 
 /*
  * Initalize a material.
@@ -247,7 +248,7 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT) {
 
     return SCVHEOS_SUCCESS;
 }
-#if 0
+
 /*
  * Generate an array that contains the sound speed at each EOS table data point.
  * 
@@ -310,13 +311,31 @@ int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
 // Functions that have to be implemented or added
 // We also need derivatives to calculate the sound speed (maybe do this once and make a table)?
 
+
+/*
+ * Calculate logP(logrho, logT).
+ */
+double scvheosLogPofRhoT(SCVHEOSMAT *Mat, double logrho, double logT) {
+    double logP;
+
+    logP = interpolateValueBilinear(rho, T, Mat->nT, Mat->nRho, Mat->rhoAxis, Mat->TAxis, Mat->pArray);
+    
+    return logP;
+}
+
 /*
  * Calculate the pressure P(rho, T).
  */
 double scvheosPofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
+    double logrho;
+    double logT;
     double P;
 
-    P = interpolateValueBilinearLog(rho, T, Mat->nT, Mat->nRho, Mat->rhoAxis, Mat->TAxis, Mat->pArray);
+    logrho = log10(rho);
+    logT = log10(T);
+
+    /* Interpolate in the table. */
+    P = pow(Mat->dLogBase, scvheosLogPofRhoT(Mat, logrho, logT));
 
     if (P < 0.0) {
         fprintf(stderr, "scvheosPofRhoT: Negative pressure for rho=%15.7E T=%15.7E (P=%15.7E)\n", rho, T, P);
@@ -325,29 +344,61 @@ double scvheosPofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     return P;
 }
 
+#if 0
 /*
  * Calculate the pressure P(rho, u).
  */
 double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
     double T;
+    double logP;
     double P;
 
     T = scvheosTofRhoU(Mat, rho, u);
-    P = interpolateValueBilinear(rho, T, Mat->nT, Mat->nRho, Mat->rhoAxis, Mat->TAxis, Mat->pArray);
+    logP = interpolateValueBilinear(rho, T, Mat->nT, Mat->nRho, Mat->rhoAxis, Mat->TAxis, Mat->pArray);
+
+    P = pow(Mat->dLogBase, logP);
+
+    if (P < 0.0) {
+        fprintf(stderr, "scvheosPofRhoU: Negative pressure for rho=%15.7E T=%15.7E (P=%15.7E)\n", rho, T, P);
+    }
+
     return P;
+}
+#endif
+
+/*
+ * Calculate logU(logrho, logT).
+ */
+double scvheosLogUofRhoT(SCVHEOSMAT *Mat, double logrho, double logT) {
+    double logu;
+
+    logu = interpolateValueBilinearLog(logrho, logT, Mat->nT, Mat->nRho, Mat->rhoAxis, Mat->TAxis,
+            Mat->uArray);
+
+    return logu;
 }
 
 /*
  * Calculate the internal energy u(rho, T).
  */
 double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
+    double logrho;
+    double logT;
     double u;
 
-    u = interpolateValueBilinearLog(rho, T, Mat->nT, Mat->nRho, Mat->rhoAxis, Mat->TAxis, Mat->uArray);
+    logrho = log10(rho);
+    logT = log10(T);
+    
+    u = pow(Mat->dLogBase, scvheosLogUofRhoT(Mat, logrho, logT));
+
+    if (u < 0.0) {
+        fprintf(stderr, "scvheosUofRhoT: Negative internal energy for rho=%15.7E T=%15.7E (u=%15.7E)\n", rho, T, u);
+    }
+
     return u;
 }
 
-
+#if 0
 /*
  * Calculate the sound speed cs(rho, T).
  */
@@ -379,14 +430,17 @@ double scvheosCsofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
     }
     return cs;
 }
+#endif
 
+#if 0
 /*
  * Calculate T(rho, u).
  */
 double scvheosTofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
+    double logT;
     double T;
 
-    T = backwardInterpolateTemperatureBilinear(rho, u, Mat->nT, Mat->nRho, Mat->rhoAxis, Mat->TAxis, Mat->uArray);
+    logT = backwardInterpolateTemperatureBilinear(rho, u, Mat->nT, Mat->nRho, Mat->rhoAxis, Mat->TAxis, Mat->uArray);
 
     if (T < 0.0) {
         fprintf(stderr, "scvheosTofRhoU: Failed for rho=%15.7E u=%15.7E (T=%15.7E)\n", rho, u, T);
@@ -415,8 +469,8 @@ double scvheosdPdTofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
 double scvheosdUdrhoofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
 
 }
-
-
+#endif
+#if 0
 /*
  * Below are the interpolation functions from Thomas' ANEOS code.
  *

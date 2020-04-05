@@ -65,11 +65,15 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit);
 int scvheosFinalizeMaterial(SCVHEOSMAT *Mat);
 int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile, int nRho, int nT);
 
-# if 0
 /* Calculate EOS values. */
+double scvheosLogPofRhoT(SCVHEOSMAT *Mat, double logrho, double logT);
 double scvheosPofRhoT(SCVHEOSMAT *Mat, double rho, double T);
-double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u);
+//double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u);
+
+double scvheosLogUofRhoT(SCVHEOSMAT *Mat, double logrho, double logT);
 double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T);
+
+# if 0
 double scvheosCsofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosCsofRhoU(SCVHEOSMAT *Mat, double rho, double u);
 double scvheosTofRhoU(SCVHEOSMAT *Mat, double rho, double u);
