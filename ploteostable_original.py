@@ -115,7 +115,7 @@ def main():
     """
     # Plot all isotherms
     for i in range(0, nT):
-        plot(logrho_table, logP_array[i], '-', linewidth=1)
+        plot(logrho_table, logP_array[i], '-')
 
     """
     # Now plot the isotherms below logT=2.0
@@ -146,7 +146,7 @@ def main():
     """
    # Plot all isotherms
     for i in range(0, nT):
-        plot(logrho_table, logu_array[i], '-', linewidth=1)
+        plot(logrho_table, logu_array[i], '-')
 
     xlabel("Log Density")
     ylabel("Log Internal Energy")
@@ -162,7 +162,7 @@ def main():
     """
    # Plot all isotherms
     for i in range(0, nT):
-        plot(logrho_table, logs_array[i], '-', linewidth=1)
+        plot(logrho_table, logs_array[i], '-')
 
     xlabel("Log Density")
     ylabel("Log Entropy")
