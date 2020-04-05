@@ -223,7 +223,7 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT) {
                 return SCVHEOS_FAIL;
             }
 
-            iRet = sscanf(chLine, "%lf %lf %lf %lf %lf", &Mat->dLogRhoAxis[j], &Mat->dLogTAxis[i], &Mat->dLogPArray[i][j], &Mat->dLogUArray[i][j], &Mat->dLogSArray[i][j]);
+            iRet = sscanf(chLine, "%lf %lf %lf %lf %lf", &Mat->dLogTAxis[i], &Mat->dLogRhoAxis[j], &Mat->dLogPArray[i][j], &Mat->dLogUArray[i][j], &Mat->dLogSArray[i][j]);
 
             /* Check if the number of matches is correct. */
             if (iRet != 5) {
@@ -231,7 +231,7 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT) {
             }
 
             if ((pow(10.0, Mat->dLogRhoAxis[j]) < 0.0) || (pow(10.0, Mat->dLogTAxis[i]) < 0.0) || 
-                (pow(10.0, Mat->dLogUArray[i][j]) < 0.0) || (pow(10.0, Mat->dLogSArray[i][j]) < 0.0)) {
+                    (pow(10.0, Mat->dLogUArray[i][j]) < 0.0) || (pow(10.0, Mat->dLogSArray[i][j]) < 0.0)) {
                 return SCVHEOS_FAIL;
             }
         }
