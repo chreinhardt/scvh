@@ -148,13 +148,12 @@ def main():
     """
     Internal energy.
     """
-
-    # Plot all isotherms
+   # Plot all isotherms
     for i in range(0, nT):
         plot(logrho_table, logu_array[i], '-', linewidth=1)
 
-    xlabel("Density [g cm$^{-3}$]")
-    ylabel("Internal energy [kJ g${-1}$]")
+    xlabel("Log Density")
+    ylabel("Log Internal Energy")
 
     savefig('ploteostable_original_h_uofrho.png', dpi=300, bbox_inches='tight')
 
