@@ -95,7 +95,6 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
         exit(1);
     }
 
-    fprintf(stderr, "Done.\n");
     /*
      * Convert from cgs to code units.
      */
