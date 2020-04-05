@@ -1,6 +1,6 @@
 
 # Object files from the SCVH EOS library
-SCVHEOS_OBJ = scvheos.o
+SCVHEOS_OBJ = scvheos.o interpBilinear.o
 
 OBJ = $(SCVHEOS_OBJ)
 
