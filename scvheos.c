@@ -38,10 +38,9 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     /* 
      * Allocate memory and initialize the data.
      *
-     * Memory for the EOS tables is allocated in scvheosReadTable. The values of nLogRho and nLogT
-     * are also set there because they differ for H and He.
+     * Memory for the EOS tables is allocated in scvheosReadTable. The number of data points nRho
+     * and nT are set in the function if the table was read correctly.
      */
-    ////// Check this
     Mat = (SCVHEOSMAT *) calloc(1, sizeof(SCVHEOSMAT));
     assert(Mat != NULL);
 
