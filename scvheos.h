@@ -39,21 +39,24 @@ typedef struct scvheosMat {
     int iMat;
     int nRho;
     int nT;
+
+    /* Convert units to code units. */
     double dKpcUnit;
     double dMsolUnit;
-	
     double dGasConst;
 	double dErgPerGmUnit;
 	double dGmPerCcUnit;
 	double dSecUnit;
 
+    /* The EOS tables are logarithmic.*/
     double *dLogRhoAxis;
     double *dLogTAxis;
     double **dLogUArray;
     double **dLogPArray;
     double **dLogSArray;
     double **dLogCArray;
-
+    
+    /* Base of the logarith. */
     double dLogBase;
 } SCVHEOSMAT;
 
