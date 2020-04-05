@@ -157,21 +157,17 @@ def main():
     fig = gcf()
     fig.clear()
 
-    # Read u(T) for different rho
-    data = numpy.loadtxt("testreos3_h_u_T.txt")
+    """
+    Entropy.
+    """
+   # Plot all isotherms
+    for i in range(0, nT):
+        plot(logrho_table, logs_array[i], '-', linewidth=1)
 
-    T = data[:,0]
-    u = data[:,1:nRho+1]
+    xlabel("Log Density")
+    ylabel("Log Entropy")
 
-    # Plot all curves of constant rho
-    for i in range(0, nRho):
-        semilogx(T_table, u_array[i], '-', linewidth=1)
-        semilogx(T, u[:,i], '--', linewidth=1)
-
-    xlabel("Temperature [K]")
-    ylabel("Internal energy [kJ g${-1}$]")
-
-    savefig('testreos3u_uofT.png', dpi=300, bbox_inches='tight')
+    savefig('ploteostable_original_h_sofrho.png', dpi=300, bbox_inches='tight')
 
     show()
     exit(0)
