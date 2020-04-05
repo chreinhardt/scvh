@@ -35,6 +35,7 @@ def main():
     rcParams['xtick.labelsize']  = 'x-small'
     rcParams['ytick.labelsize']  = 'x-small'
     rcParams['axes.labelsize']   = 'small'
+    rcParams['axes.titlesize']   = 'small'
 
     # Adjust Line Width and Marker Size
     rcParams['lines.markersize']  = 5
