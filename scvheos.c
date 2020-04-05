@@ -163,8 +163,9 @@ int scvheosFinalizeMaterial(SCVHEOSMAT *Mat) {
  *
  * SCVHEOS: 
  *
- * H:  nRho = 201, nT = 100, logarithmic spacing (base 10)
- * He: nRho = 201, nT = 100, logarithmic spacing (base 10)
+ * H:    nRho = 201, nT = 100, logarithmic spacing (base 10)
+ * He:   nRho = 201, nT = 100, logarithmic spacing (base 10)
+ * H/He: nRho = 201, nT = 100, logarithmic spacing (base 10)
  */
 int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT) {
     FILE *fp;
