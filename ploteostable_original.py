@@ -39,7 +39,7 @@ def main():
 
     # Adjust Line Width and Marker Size
     rcParams['lines.markersize']  = 5
-    rcParams['lines.linewidth']  = 0.1
+    rcParams['lines.linewidth']  = 0.5
 
     # Restore classic font used for math
     rcParams['mathtext.fontset'] = 'cm'
@@ -55,8 +55,8 @@ def main():
     SCVH EOS table for H.
     """
     data = numpy.loadtxt("scvh_h_dt_cgs.csv", delimiter=",", skiprows=1) 
-    data = numpy.loadtxt("scvh_he_dt_cgs.csv", delimiter=",", skiprows=1)
-    data = numpy.loadtxt("scvh_hhe_y0.275_dt_cgs.csv", delimiter=",", skiprows=1)
+    #data = numpy.loadtxt("scvh_he_dt_cgs.csv", delimiter=",", skiprows=1)
+    #data = numpy.loadtxt("scvh_hhe_y0.275_dt_cgs.csv", delimiter=",", skiprows=1)
 
     logT_table    = data[:, 0] 
     logrho_table  = data[:, 1]
@@ -92,6 +92,12 @@ def main():
     logrho_max = numpy.max(logrho_table)
     logT_min   = numpy.min(logT_table)
     logT_max   = numpy.max(logT_table)
+    
+    dlogrho = logrho_table[1:]-logrho_table[:-1]
+    dlogT = logT_table[1:]-logT_table[:-1]
+    #print dlogrho
+    #print dlogT
+    #exit(1)
 
     print "logrho_min=", logrho_min
     print "logrho_max=", logrho_max
@@ -117,27 +123,33 @@ def main():
     for i in range(0, nT):
         plot(logrho_table, logP_array[i], '-')
 
-    """
-    # Now plot the isotherms below logT=2.0
-    for i in range(0, index+1):
-        plot(logrho_table, logP_array[i], '-', linewidth=1)
-        #loglog(10**logrho_table, 10**logP_array[i], '-', linewidth=1)
-        #loglog(rho_table, P_array[i], '-', linewidth=1)
-        #loglog(rho, P[:,i], '--', linewidth=1)
-    
-    for i in range(index+1, index+20):
-        plot(logrho_table, logP_array[i], '--', linewidth=1)
-    """
-
-    # Zoom in to the weird region
-    #xlim(-3.5, -3.0)
-    #ylim(5.8, 7.0) 
-
+    title("SCVH EOS for H")
     xlabel("Log Density")
     ylabel("Log Pressure")
 
     savefig('ploteostable_original_h_pofrho.png', dpi=300, bbox_inches='tight')
 
+    fig = gcf()
+    fig.clear()
+
+    # Now plot the isotherms below logT=2.0
+    for i in range(0, index+1):
+        plot(logrho_table, logP_array[i], '-')
+    
+    for i in range(index+1, index+20):
+        plot(logrho_table, logP_array[i], '--')
+
+    # Zoom in to the weird region
+    xlim(-3.5, -3.0)
+    ylim(5.8, 7.0) 
+
+    title("SCVH EOS for H")
+    xlabel("Log Density")
+    ylabel("Log Pressure")
+
+    savefig('ploteostable_original_h_pofrho_zoom.png', dpi=300, bbox_inches='tight')
+
+    show()
     fig = gcf()
     fig.clear()
 
@@ -153,7 +165,7 @@ def main():
 
     savefig('ploteostable_original_h_uofrho.png', dpi=300, bbox_inches='tight')
 
-    show()
+    #show()
     fig = gcf()
     fig.clear()
 
@@ -169,7 +181,7 @@ def main():
 
     savefig('ploteostable_original_h_sofrho.png', dpi=300, bbox_inches='tight')
 
-    show()
+    #show()
     exit(0)
 
 if __name__ == '__main__':
