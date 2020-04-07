@@ -399,6 +399,34 @@ double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     return u;
 }
 
+/*
+ * Calculate logs(logrho, logT).
+ */
+double scvheosLogSofRhoT(SCVHEOSMAT *Mat, double logrho, double logT) {
+    double logs;
+
+    logs = interpolateValueBilinear(logrho, logT, Mat->nT, Mat->nRho, Mat->dLogRhoAxis, Mat->dLogTAxis, Mat->dLogSArray);
+    
+    return logs;
+}
+
+/*
+ * Calculate the entropy s(rho, T).
+ */
+double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
+    double logrho;
+    double logT;
+    double s;
+
+    logrho = log10(rho);
+    logT = log10(T);
+
+    /* Interpolate in the table. */
+    s = pow(Mat->dLogBase, scvheosLogSofRhoT(Mat, logrho, logT));
+
+    return s;
+}
+
 #if 0
 /*
  * Calculate the sound speed cs(rho, T).

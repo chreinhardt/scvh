@@ -73,6 +73,8 @@ double scvheosPofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosLogUofRhoT(SCVHEOSMAT *Mat, double logrho, double logT);
 double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 
+double scvheosLogSofRhoT(SCVHEOSMAT *Mat, double logrho, double logT);
+double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 # if 0
 double scvheosCsofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosCsofRhoU(SCVHEOSMAT *Mat, double rho, double u);
