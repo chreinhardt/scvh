@@ -88,7 +88,7 @@ def main():
     print "logT_table  =", logT_table
     print
 
-    index = numpy.min(numpy.where(logT_table>=2.0))
+    index = numpy.min(numpy.where(logT_table>=2.1))
     print "i=", index, "logT=", logT_table[index]
 
     # Split into arrays of constant T
@@ -128,15 +128,15 @@ def main():
     # Now plot the isotherms below logT=2.0
     for i in range(0, index+1):
         plot(logrho_table, logs_array[i], '-')
-        plot(logrho, logs[:, i], '--')
+        plot(logrho, logs[:, i], '-o')
 
     for i in range(index+1, index+20):
         plot(logrho_table, logs_array[i], '--')
-        plot(logrho, logs[:, i], '-*')
+        plot(logrho, logs[:, i], '--*')
 
     # Zoom in to the weird region
-    xlim(-3.5, -3.0)
-    ylim(5.8, 7.0) 
+    xlim(-1.72, -1.62)
+    ylim(8.5, 8.6) 
 
     title("SCVH EOS for H")
     xlabel("Log Density")
@@ -144,7 +144,7 @@ def main():
 
     savefig('testscvheosentropy_zoom.png', dpi=300, bbox_inches='tight')
 
-    #show()
+    show()
     exit(0)
 
 if __name__ == '__main__':
