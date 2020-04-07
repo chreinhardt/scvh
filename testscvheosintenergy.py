@@ -128,15 +128,15 @@ def main():
     # Now plot the isotherms below logT=2.0
     for i in range(0, index+1):
         plot(logrho_table, logu_array[i], '-')
-        plot(logrho, logu[:, i], '--')
+        plot(logrho, logu[:, i], '-o')
 
     for i in range(index+1, index+20):
         plot(logrho_table, logu_array[i], '--')
         plot(logrho, logu[:, i], '-*')
 
     # Zoom in to the weird region
-    xlim(-3.5, -3.0)
-    ylim(5.8, 7.0) 
+    xlim(-0.97, -0.95)
+    ylim(10.0, 10.15) 
 
     title("SCVH EOS for H")
     xlabel("Log Density")
@@ -144,7 +144,18 @@ def main():
 
     savefig('testscvheosintenergy_zoom.png', dpi=300, bbox_inches='tight')
 
-    #show()
+    # Zoom in to the weird region
+    xlim(-0.15, -0.05)
+    ylim(11.8, 12.2) 
+
+    title("SCVH EOS for H")
+    xlabel("Log Density")
+    ylabel("Log Internal Energy")
+
+    savefig('testscvheosintenergy_zoom2.png', dpi=300, bbox_inches='tight')
+    
+    show()
+
     exit(0)
 
 if __name__ == '__main__':

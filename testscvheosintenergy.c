@@ -34,8 +34,8 @@ int main(int argc, char **argv) {
         fprintf(fp, "%15.7E", logrho);
 
         for (i=0; i<Mat->nT-1; i++) {
-            logT =  Mat->dLogTAxis[i];
-            //logT = 0.5*(Mat->dLogTAxis[i+1]+Mat->dLogTAxis[i]);
+            //logT =  Mat->dLogTAxis[i];
+            logT = 0.5*(Mat->dLogTAxis[i+1]+Mat->dLogTAxis[i]);
             fprintf(fp, "%15.7E", scvheosLogUofRhoT(Mat, logrho, logT));
         }
         
