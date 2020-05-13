@@ -29,13 +29,13 @@ int main(int argc, char **argv) {
     printf("Done.\n");
 
     /* Calculate the specific heat capacity at the grid points. */
-    fp = fopen("testscvheoscv.txt", "w");
+    fp = fopen("testscvheoscv_grid.txt", "w");
 
     for (j=0; j<Mat->nRho-1; j++) {
-        rho = pow(10.0,  Mat->dLogRhoAxis[j]);
+        rho = pow(Mat->dLogBase,  Mat->dLogRhoAxis[j]);
 
         for (i=0; i<Mat->nT-1; i++) {
-            T = pow(10.0,  Mat->dLogTAxis[i]);
+            T = pow(Mat->dLogBase,  Mat->dLogTAxis[i]);
 
             //cv = scvheosdUdTofRhoT(Mat, rho, T);
             cv = T*scvheosdSdTofRhoT(Mat, rho, T);
@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "rho= %15.7g T= %15.7g cv= %15.7g\n", rho, T, cv);
             }
 
-            fprintf(fp, "%15.7E", (cv-scvheosdUdTofRhoT(Mat, rho, T))/cv);
+            fprintf(fp, "%15.7E", cv);
         }
         
         fprintf(fp, "\n");
@@ -54,6 +54,21 @@ int main(int argc, char **argv) {
 
     fclose(fp);
 
+    /* Calculate the difference in the specific heat capacity if it is calculated from u or s. */
+    fp = fopen("testscvheoscv_grid_diff.txt", "w");
+
+    for (j=0; j<Mat->nRho-1; j++) {
+        rho = pow(Mat->dLogBase,  Mat->dLogRhoAxis[j]);
+
+        for (i=0; i<Mat->nT-1; i++) {
+            T = pow(Mat->dLogBase,  Mat->dLogTAxis[i]);
+            cv = T*scvheosdSdTofRhoT(Mat, rho, T);
+    
+            fprintf(fp, "%15.7E", (cv-scvheosdUdTofRhoT(Mat, rho, T))/cv);
+        }
+        
+        fprintf(fp, "\n");
+    }
     printf("Free memory\n");
     scvheosFinalizeMaterial(Mat);
     printf("Done.\n");
