@@ -36,7 +36,9 @@ int main(int argc, char **argv) {
 
         for (i=0; i<Mat->nT-1; i++) {
             T = pow(10.0,  Mat->dLogTAxis[i]);
-            fprintf(fp, "%15.7E", scvheosdUdTofRhoT(Mat, rho, T));
+
+            cv = scvheosdUdTofRhoT(Mat, rho, T);
+            fprintf(fp, "%15.7E", cv);
         }
         
         fprintf(fp, "\n");
