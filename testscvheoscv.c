@@ -37,14 +37,16 @@ int main(int argc, char **argv) {
         for (i=0; i<Mat->nT-1; i++) {
             T = pow(10.0,  Mat->dLogTAxis[i]);
 
-            cv = scvheosdUdTofRhoT(Mat, rho, T);
-
+            //cv = scvheosdUdTofRhoT(Mat, rho, T);
+            cv = T*scvheosdSdTofRhoT(Mat, rho, T);
+            
             if (cv > 0.0) {
             } else {
-                fprintf(stderr, "rho= %15.7E T= %15.7E cv= %15.7E\n", rho, T, cv);
+                //fprintf(stderr, "rho= %15.7E T= %15.7E cv= %15.7E\n", rho, T, cv);
+                fprintf(stderr, "rho= %15.7g T= %15.7g cv= %15.7g\n", rho, T, cv);
             }
 
-            fprintf(fp, "%15.7E", cv);
+            fprintf(fp, "%15.7E", (cv-scvheosdUdTofRhoT(Mat, rho, T))/cv);
         }
         
         fprintf(fp, "\n");
