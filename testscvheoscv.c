@@ -36,7 +36,8 @@ int main(int argc, char **argv) {
 
         for (i=0; i<Mat->nT-1; i++) {
             T = pow(Mat->dLogBase,  Mat->dLogTAxis[i]);
-
+            
+            if ((i==0) && (j==0)) printf("rho0= %g T= %g\n", rho, T);
             //cv = scvheosdUdTofRhoT(Mat, rho, T);
             cv = T*scvheosdSdTofRhoT(Mat, rho, T);
             
@@ -64,7 +65,15 @@ int main(int argc, char **argv) {
             T = pow(Mat->dLogBase,  Mat->dLogTAxis[i]);
             cv = T*scvheosdSdTofRhoT(Mat, rho, T);
     
-            fprintf(fp, "%15.7E", (cv-scvheosdUdTofRhoT(Mat, rho, T))/cv);
+            if (fabs(cv-scvheosdUdTofRhoT(Mat, rho, T))/cv < 1e-2) {
+                fprintf(fp, "%3i", 1);
+            } else if (fabs(cv-scvheosdUdTofRhoT(Mat, rho, T))/cv < 1e-1) {
+                fprintf(fp, "%3i", 2);
+            } else {
+                fprintf(fp, "%3i", 3);
+            }
+
+            //fprintf(fp, "%15.7E", (cv-scvheosdUdTofRhoT(Mat, rho, T))/cv);
         }
         
         fprintf(fp, "\n");
