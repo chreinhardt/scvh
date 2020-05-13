@@ -427,6 +427,19 @@ double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     return s;
 }
 
+/*
+ * Calculate the derivative dUdT(rho, T).
+ */
+double scvheosdUdTofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
+    /* Finite difference. */
+    double h = 1e-6;
+    double dUdT;
+
+    dUdT = (scvheosUofRhoT(Mat, rho, T+h)-scvheosUofRhoT(Mat, rho, T-h))/(2.0*h);
+    return dUdT;
+}
+
+
 #if 0
 /*
  * Calculate the sound speed cs(rho, T).
