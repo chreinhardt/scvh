@@ -249,6 +249,7 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT) {
     return SCVHEOS_SUCCESS;
 }
 
+#if 0
 /*
  * Generate an array that contains the sound speed at each EOS table data point.
  * 
@@ -274,40 +275,40 @@ int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
     if (Mat == NULL)
         return SCVHEOS_FAIL;
     
-    if ((Mat->rhoAxis == NULL) || (Mat->TAxis == NULL))
+    if ((Mat->dLogRhoAxis == NULL) || (Mat->dLogTAxis == NULL))
         return SCVHEOS_FAIL;
 
-    if (Mat->cArray != NULL)
+    if (Mat->dLogCArray != NULL)
         return SCVHEOS_FAIL;
 
-    Mat->cArray = (double **) calloc(Mat->nT, sizeof(double*));
+    Mat->dLogArray = (double **) calloc(Mat->nT, sizeof(double*));
 
-    if (Mat->cArray == NULL)
+    if (Mat->dLogArray == NULL)
         return SCVHEOS_FAIL;
 
     /* nRho and nT are set in scvheosReadTable(). */
     for (i=0; i<Mat->nT; i++) {
-        Mat->cArray[i] = (double *) calloc(Mat->nRho, sizeof(double));
-        if (Mat->cArray[i] == NULL)
+        Mat->dLogCArray[i] = (double *) calloc(Mat->nRho, sizeof(double));
+        if (Mat->dLogArray[i] == NULL)
             return SCVHEOS_FAIL;
 
     }
 
     for (i=0; i<Mat->nT; i++) {
         for (j=0; j<Mat->nRho; j++) {
-            P = scvheosPofRhoT(Mat, Mat->rhoAxis[j], Mat->TAxis[j]);
-            dPdrho = scvheosdPdrhoofRhoT(Mat, Mat->rhoAxis[j], Mat->TAxis[j]);
-            dPdT = scvheosdPdTofRhoT(Mat, Mat->rhoAxis[j], Mat->TAxis[j]);
-            cv = scvheosdUdrhoofRhoT(Mat, Mat->rhoAxis[j], Mat->TAxis[j]);
+            P = scvheosPofRhoT(Mat, Mat->dLogRhoAxis[j], Mat->dLogTAxis[j]);
+            dPdrho = scvheosdPdrhoofRhoT(Mat, Mat->dLogRhoAxis[j], Mat->dLogTAxis[j]);
+            dPdT = scvheosdPdTofRhoT(Mat, Mat->dLogRhoAxis[j], Mat->dLogTAxis[j]);
+            cv = scvheosdUdrhoofRhoT(Mat, Mat->dLogRhoAxis[j], Mat->dLogTAxis[j]);
 
-            cs2 = dPdrho + Mat->TAxis[i]/(Mat->rhoAxis[j]*Mat->rhoAxis[j]*cv)*dPdT;
+            cs2 = dPdrho + Mat->dLogTAxis[i]/(Mat->rhoAxis[j]*Mat->rhoAxis[j]*cv)*dPdT;
 
             assert(cs2 > 0.0);
             Mat->cArray[i][j] = sqrt(cs2);
         }
     }
 }
-
+#endif
 // Functions that have to be implemented or added
 // We also need derivatives to calculate the sound speed (maybe do this once and make a table)?
 
@@ -318,7 +319,7 @@ int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
 double scvheosLogPofRhoT(SCVHEOSMAT *Mat, double logrho, double logT) {
     double logP;
 
-    logP = interpolateValueBilinear(rho, T, Mat->nT, Mat->nRho, Mat->rhoAxis, Mat->TAxis, Mat->pArray);
+    logP = interpolateValueBilinear(logrho, logT, Mat->nT, Mat->nRho, Mat->dLogRhoAxis, Mat->dLogTAxis, Mat->dLogPArray);
     
     return logP;
 }
@@ -372,8 +373,8 @@ double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
 double scvheosLogUofRhoT(SCVHEOSMAT *Mat, double logrho, double logT) {
     double logu;
 
-    logu = interpolateValueBilinearLog(logrho, logT, Mat->nT, Mat->nRho, Mat->rhoAxis, Mat->TAxis,
-            Mat->uArray);
+    logu = interpolateValueBilinear(logrho, logT, Mat->nT, Mat->nRho, Mat->dLogRhoAxis,
+                                    Mat->dLogTAxis, Mat->dLogUArray);
 
     return logu;
 }
@@ -396,6 +397,34 @@ double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     }
 
     return u;
+}
+
+/*
+ * Calculate logs(logrho, logT).
+ */
+double scvheosLogSofRhoT(SCVHEOSMAT *Mat, double logrho, double logT) {
+    double logs;
+
+    logs = interpolateValueBilinear(logrho, logT, Mat->nT, Mat->nRho, Mat->dLogRhoAxis, Mat->dLogTAxis, Mat->dLogSArray);
+    
+    return logs;
+}
+
+/*
+ * Calculate the entropy s(rho, T).
+ */
+double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
+    double logrho;
+    double logT;
+    double s;
+
+    logrho = log10(rho);
+    logT = log10(T);
+
+    /* Interpolate in the table. */
+    s = pow(Mat->dLogBase, scvheosLogSofRhoT(Mat, logrho, logT));
+
+    return s;
 }
 
 #if 0

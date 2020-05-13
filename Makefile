@@ -32,6 +32,14 @@ testscvheos: testscvheos.o $(OBJ)
 testscvheosreadtable: testscvheosreadtable.o $(OBJ)
 	cc -o testscvheosreadtable testscvheosreadtable.o $(OBJ) $(LIBS)
 
+testscvheospressure: testscvheospressure.o $(OBJ)
+	cc -o testscvheospressure testscvheospressure.o $(OBJ) $(LIBS)
+
+testscvheosintenergy: testscvheosintenergy.o $(OBJ)
+	cc -o testscvheosintenergy testscvheosintenergy.o $(OBJ) $(LIBS)
+
+testscvheosentropy: testscvheosentropy.o $(OBJ)
+	cc -o testscvheosentropy testscvheosentropy.o $(OBJ) $(LIBS)
 
 clean:
 	rm $(OBJ)
