@@ -38,6 +38,12 @@ int main(int argc, char **argv) {
             T = pow(10.0,  Mat->dLogTAxis[i]);
 
             cv = scvheosdUdTofRhoT(Mat, rho, T);
+
+            if (cv > 0.0) {
+            } else {
+                fprintf(stderr, "rho= %15.7E T= %15.7E cv= %15.7E\n", rho, T, cv);
+            }
+
             fprintf(fp, "%15.7E", cv);
         }
         
