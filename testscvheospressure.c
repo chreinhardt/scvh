@@ -16,6 +16,7 @@ int main(int argc, char **argv) {
     double dKpcUnit = 2.06701e-13;
 	double dMsolUnit = 4.80438e-08;
     double logrho, logT;
+    double rho, T;
     FILE *fp;
     int i, j;
 
@@ -44,6 +45,21 @@ int main(int argc, char **argv) {
 
     fclose(fp);
 
+    /* Calculate the pressure at the grid points that are within the range of REOS3. */
+    fp = fopen("testscvheospressure_grid.txt", "w");
+
+    for (j=10; j<Mat->nRho-1; j++) {
+        rho = pow(Mat->dLogBase,  Mat->dLogRhoAxis[j]);
+
+        for (i=15; i<Mat->nT-1; i++) {
+            T = pow(Mat->dLogBase,  Mat->dLogTAxis[i]);
+            fprintf(fp, "%15.7E", scvheosPofRhoT(Mat, rho, T));
+        }
+        
+        fprintf(fp, "\n");
+    }
+
+    fclose(fp);
     printf("Free memory\n");
     scvheosFinalizeMaterial(Mat);
     printf("Done.\n");
