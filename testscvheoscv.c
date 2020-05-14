@@ -28,19 +28,20 @@ int main(int argc, char **argv) {
     Mat = scvheosInitMaterial(iMat, dKpcUnit, dMsolUnit);
     printf("Done.\n");
 
-    /* Calculate the specific heat capacity at the grid points. */
+    /* Calculate the specific heat capacity at the grid points that are within the range of REOS3. */
     fp = fopen("testscvheoscv_grid.txt", "w");
 
-    for (j=0; j<Mat->nRho-1; j++) {
+    for (j=10; j<Mat->nRho-1; j++) {
         rho = pow(Mat->dLogBase,  Mat->dLogRhoAxis[j]);
 
-        for (i=0; i<Mat->nT-1; i++) {
+        for (i=15; i<Mat->nT-1; i++) {
             T = pow(Mat->dLogBase,  Mat->dLogTAxis[i]);
             
-            if ((i==0) && (j==0)) printf("rho0= %g T= %g\n", rho, T);
+            // if ((i==0) && (j==0)) printf("rho0= %g T= %g\n", rho, T);
             //cv = scvheosdUdTofRhoT(Mat, rho, T);
             cv = T*scvheosdSdTofRhoT(Mat, rho, T);
             
+            cv = (pow(Mat->dLogBase, Mat->dLogUArray[i+1][j])-pow(Mat->dLogBase, Mat->dLogUArray[i][j]))/(pow(Mat->dLogBase, Mat->dLogTAxis[i+1])-pow(Mat->dLogBase, Mat->dLogTAxis[i]));
             if (cv > 0.0) {
             } else {
                 //fprintf(stderr, "rho= %15.7E T= %15.7E cv= %15.7E\n", rho, T, cv);
