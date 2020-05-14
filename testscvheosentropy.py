@@ -95,7 +95,14 @@ def main():
     logP_array = numpy.split(logP_table, nT)
     logu_array = numpy.split(logu_table, nT)
     logs_array = numpy.split(logs_table, nT)
+
+    # Build the logrho and logT array
+    logT = logT_min + numpy.linspace(0, nT-1, num=nT)*(logT_max-logT_min)/(nT-1)
+    logrho = logrho_min + numpy.linspace(0, nRho-1, num=nRho)*(logrho_max-logrho_min)/(nRho-1)
     
+    print 10**logT
+    exit(1)
+
     """
     Entropy.
     """
