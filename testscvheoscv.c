@@ -79,6 +79,31 @@ int main(int argc, char **argv) {
         
         fprintf(fp, "\n");
     }
+
+    fclose(fp);
+
+    /* Mark where cv < 0. */
+    fp = fopen("testscvheoscv_grid_neg.txt", "w");
+
+    for (j=10; j<Mat->nRho-1; j++) {
+        rho = pow(Mat->dLogBase,  Mat->dLogRhoAxis[j]);
+
+        for (i=15; i<Mat->nT-1; i++) {
+            T = pow(Mat->dLogBase,  Mat->dLogTAxis[i]);
+            //cv = T*scvheosdSdTofRhoT(Mat, rho, T);
+            cv = scvheosdUdTofRhoT(Mat, rho, T);
+    
+            if (cv > 0.0) {
+                fprintf(fp, "%3i", 1);
+            } else {
+                fprintf(fp, "%3i", 0);
+            }
+
+            //fprintf(fp, "%15.7E", (cv-scvheosdUdTofRhoT(Mat, rho, T))/cv);
+        }
+        
+        fprintf(fp, "\n");
+    }
     printf("Free memory\n");
     scvheosFinalizeMaterial(Mat);
     printf("Done.\n");
