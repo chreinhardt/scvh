@@ -108,12 +108,14 @@ def main():
 
     print "num_isotherms=", num_isotherms
 
+    cmap = matplotlib.cm.hsv.reversed()
+	
     # Plot all isotherms
     for i in range(0, num_isotherms):
         if i<nT:
-            plot(logrho_table, logP_array[i], '-')
-        plot(logrho, logP[:, i], '--')
-
+            plot(logrho_table, logP_array[i], '-', c=cmap(70 + int((255/num_isotherms)*i)))
+        plot(logrho, logP[:, i], '--', c=cmap(70 + int((255/num_isotherms)*i)))
+		
     title("SCVH EOS for H")
     xlabel("Log Density")
     ylabel("Log Pressure")
