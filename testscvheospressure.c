@@ -3,7 +3,7 @@
  *
  * Author:   Christian Reinhardt
  * Created:  06.04.2020
- * Modified:
+ * Modified: 15.05.2020
  */
 #include <math.h>
 #include <stdio.h>
@@ -26,8 +26,8 @@ int main(int argc, char **argv) {
     printf("SCVH EOS: Initializing material %i\n", iMat); 
     Mat = scvheosInitMaterial(iMat, dKpcUnit, dMsolUnit);
     printf("Done.\n");
-
-    /* Interpolate in rho for differen isotherms. */
+	
+    /* Interpolate in rho for different isotherms. */
     fp = fopen("testscvheospressure.txt", "w");
 
     for (j=1; j<Mat->nRho-1; j++) {
@@ -42,7 +42,7 @@ int main(int argc, char **argv) {
         
         fprintf(fp, "\n");
     }
-
+	
     fclose(fp);
 
     /* Calculate the pressure at the grid points that are within the range of REOS3. */
@@ -50,9 +50,11 @@ int main(int argc, char **argv) {
 
     for (j=10; j<Mat->nRho-1; j++) {
         rho = pow(Mat->dLogBase,  Mat->dLogRhoAxis[j]);
-
+		fprintf(fp, "%15.7E", rho);
+		
         for (i=15; i<Mat->nT-1; i++) {
             T = pow(Mat->dLogBase,  Mat->dLogTAxis[i]);
+			fprintf(fp, "%15.7E", T);
             fprintf(fp, "%15.7E", scvheosPofRhoT(Mat, rho, T));
         }
         
