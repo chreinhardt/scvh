@@ -186,7 +186,8 @@ def main():
     fig.clear()
 
     # Plot SCVH only
-    for i in range(index+1,  nT):
+    print "Plottting from index", index+2, " logT=", logT_table[index+2]
+    for i in range(index+2,  nT):
         plot(logrho_table, logs_array[i], '-')
 
     xlabel("Log Density")
