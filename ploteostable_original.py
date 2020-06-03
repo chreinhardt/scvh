@@ -149,7 +149,7 @@ def main():
 
     savefig('ploteostable_original_h_pofrho_zoom.png', dpi=300, bbox_inches='tight')
 
-    show()
+    #show()
     fig = gcf()
     fig.clear()
 
@@ -180,8 +180,21 @@ def main():
     ylabel("Log Entropy")
 
     savefig('ploteostable_original_h_sofrho.png', dpi=300, bbox_inches='tight')
-
+    
     #show()
+    fig = gcf()
+    fig.clear()
+
+    # Plot SCVH only
+    for i in range(index+1,  nT):
+        plot(logrho_table, logs_array[i], '-')
+
+    xlabel("Log Density")
+    ylabel("Log Entropy")
+
+    savefig('ploteostable_original_h_sofrho_scvheosonly.png', dpi=300, bbox_inches='tight')
+
+    show()
     exit(0)
 
 if __name__ == '__main__':
