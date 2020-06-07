@@ -316,7 +316,7 @@ int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
 /*
  * Calculate logP(logrho, logT).
  */
-double scvheosLogPofRhoT(SCVHEOSMAT *Mat, double logrho, double logT) {
+double scvheosLogPofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     double logP;
 
     logP = interpolateValueBilinear(logrho, logT, Mat->nT, Mat->nRho, Mat->dLogRhoAxis, Mat->dLogTAxis, Mat->dLogPArray);
@@ -336,7 +336,7 @@ double scvheosPofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     logT = log10(T);
 
     /* Interpolate in the table. */
-    P = pow(Mat->dLogBase, scvheosLogPofRhoT(Mat, logrho, logT));
+    P = pow(Mat->dLogBase, scvheosLogPofLogRhoLogT(Mat, logrho, logT));
 
     if (P < 0.0) {
         fprintf(stderr, "scvheosPofRhoT: Negative pressure for rho=%15.7E T=%15.7E (P=%15.7E)\n", rho, T, P);
@@ -370,7 +370,7 @@ double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
 /*
  * Calculate logU(logrho, logT).
  */
-double scvheosLogUofRhoT(SCVHEOSMAT *Mat, double logrho, double logT) {
+double scvheosLogUofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     double logu;
 
     logu = interpolateValueBilinear(logrho, logT, Mat->nT, Mat->nRho, Mat->dLogRhoAxis,
@@ -390,7 +390,7 @@ double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     logrho = log10(rho);
     logT = log10(T);
     
-    u = pow(Mat->dLogBase, scvheosLogUofRhoT(Mat, logrho, logT));
+    u = pow(Mat->dLogBase, scvheosLogUofLogRhoLogT(Mat, logrho, logT));
 
     if (u < 0.0) {
         fprintf(stderr, "scvheosUofRhoT: Negative internal energy for rho=%15.7E T=%15.7E (u=%15.7E)\n", rho, T, u);
@@ -402,7 +402,7 @@ double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
 /*
  * Calculate logs(logrho, logT).
  */
-double scvheosLogSofRhoT(SCVHEOSMAT *Mat, double logrho, double logT) {
+double scvheosLogSofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     double logs;
 
     logs = interpolateValueBilinear(logrho, logT, Mat->nT, Mat->nRho, Mat->dLogRhoAxis, Mat->dLogTAxis, Mat->dLogSArray);
@@ -422,7 +422,7 @@ double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     logT = log10(T);
 
     /* Interpolate in the table. */
-    s = pow(Mat->dLogBase, scvheosLogSofRhoT(Mat, logrho, logT));
+    s = pow(Mat->dLogBase, scvheosLogSofLogRhoLogT(Mat, logrho, logT));
 
     return s;
 }
