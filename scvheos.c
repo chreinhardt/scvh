@@ -428,6 +428,30 @@ double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
 }
 
 /*
+ * Calculate the derivative dPdRho(rho, T).
+ */
+double scvheosdPdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
+    /* Finite difference. */
+    double h = 1e-5*rho;
+    double dPdRho;
+
+    dPdRho = (scvheosPofRhoT(Mat, rho+h, T) - scvheosPofRhoT(Mat, rho-h, T))/(2.0*h);
+    return dPdRho;
+}
+
+/*
+ * Calculate the derivative dPdT(rho, T).
+ */
+double scvheosdPdTofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
+    /* Finite difference. */
+    double h = 1e-5*T;
+    double dPdT;
+
+    dPdT = (scvheosPofRhoT(Mat, rho, T+h) - scvheosPofRhoT(Mat, rho, T-h))/(2.0*h);
+    return dPdT;
+}
+
+/*
  * Calculate the derivative dUdT(rho, T).
  */
 double scvheosdUdTofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
