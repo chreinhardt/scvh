@@ -79,7 +79,10 @@ double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosdPdTofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosdPdTofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 
+double scvheosdUdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosdUdTofRhoT(SCVHEOSMAT *Mat, double rho, double T);
+
+double scvheosdSdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosdSdTofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 # if 0
 double scvheosCsofRhoT(SCVHEOSMAT *Mat, double rho, double T);
