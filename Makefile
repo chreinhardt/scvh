@@ -44,6 +44,9 @@ testscvheosentropy: testscvheosentropy.o $(OBJ)
 testscvheoscv: testscvheoscv.o $(OBJ)
 	cc -o testscvheoscv testscvheoscv.o $(OBJ) $(LIBS)
 
+testscvheosderivs: testscvheosderivs.o $(OBJ)
+	cc -o testscvheosderivs testscvheosderivs.o $(OBJ) $(LIBS)
+
 clean:
 	rm $(OBJ)
 
