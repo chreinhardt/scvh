@@ -3,7 +3,7 @@
  *
  * Author:   Christian Reinhardt
  * Created:  08.06.2020
- * Modified: 
+ * Modified: 09.06.2020
  */
 #include <math.h>
 #include <stdio.h>
@@ -44,7 +44,7 @@ int main(int argc, char **argv) {
 
     fclose(fp);
 
-    /* Calculate the derivatives on the grid points of the EOS table. */	
+    /* Calculate dP/drho(rho, T) on the grid points of the EOS table. */	
     fp = fopen("testscvheosderivs_dpdrhoofrhot.txt", "w");
 
     for (j=0; j<Mat->nRho-1; j++) {
@@ -70,6 +70,36 @@ int main(int argc, char **argv) {
         for (i=15; i<Mat->nT-1; i++) {
 			T = pow(Mat->dLogBase,  Mat->dLogTAxis[i]);
             fprintf(fp, "%15.7E", scvheosPofRhoT(Mat, rho, T));
+        }
+        fprintf(fp, "\n");
+    }
+
+    /* Calculate dP/dT(rho, T) on the grid points of the EOS table. */	
+    fp = fopen("testscvheosderivs_dpdtofrhot.txt", "w");
+
+    for (j=0; j<Mat->nRho-1; j++) {
+        rho = pow(Mat->dLogBase, Mat->dLogRhoAxis[j]);
+
+        for (i=0; i<Mat->nT-1; i++) {
+            T = pow(Mat->dLogBase, Mat->dLogTAxis[i]);
+
+            fprintf(fp, "%15.7E", scvheosdPdTofRhoT(Mat, rho, T));
+        }
+        
+        fprintf(fp, "\n");
+    }
+	
+    fclose(fp);
+
+    /* Do the same but only for the grid points that are within the range of REOS3. */
+    fp = fopen("testscvheosderivs_dpdtofrhot_reos3.txt", "w");
+
+    for (j=10; j<Mat->nRho-1; j++) {
+        rho = pow(Mat->dLogBase,  Mat->dLogRhoAxis[j]);
+
+        for (i=15; i<Mat->nT-1; i++) {
+			T = pow(Mat->dLogBase,  Mat->dLogTAxis[i]);
+            fprintf(fp, "%15.7E", scvheosdPdTofRhoT(Mat, rho, T));
         }
         fprintf(fp, "\n");
     }
