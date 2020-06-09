@@ -65,6 +65,23 @@ def main():
     fig = gcf()
     fig.clear()
 
+    # Now only the region that overlaps with REOS3
+    data = numpy.loadtxt("testscvheosderivs_dpdrhoofrhot_reos3.txt")
+
+    imshow(data)
+    colorbar()
+
+    xlabel("nT")
+    ylabel("nRho")
+    
+    title("Overlapping with REOS3")
+
+    savefig('testscvheosderivs_dpdrhoofrhot.png', dpi=300, bbox_inches='tight')
+    #show()
+
+    fig = gcf()
+    fig.clear()
+
     """
     Plot dP/dT(rho, T).
     """
