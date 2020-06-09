@@ -85,7 +85,7 @@ def main():
     """
     Plot dP/dT(rho, T).
     """
-    data = numpy.loadtxt("testscvheosderivs_dpdtofrhot.txt")
+    data = numpy.loadtxt("testscvheosderivs_dpdtofrhot_reos3.txt")
 
     print numpy.where(data <= 0.0)
 
