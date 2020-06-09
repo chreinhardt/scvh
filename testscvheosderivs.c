@@ -63,10 +63,11 @@ int main(int argc, char **argv) {
     fclose(fp);
 
     /* Do the same but only for the grid points that are within the range of REOS3. */
-    fp = fopen("testscvheosderivs_dpdrhopfrhot_reos3.txt", "w");
+    fp = fopen("testscvheosderivs_dpdrhoofrhot_reos3.txt", "w");
 
     for (j=10; j<Mat->nRho-1; j++) {
         rho = pow(Mat->dLogBase,  Mat->dLogRhoAxis[j]);
+
         for (i=15; i<Mat->nT-1; i++) {
 			T = pow(Mat->dLogBase,  Mat->dLogTAxis[i]);
             fprintf(fp, "%15.7E", scvheosPofRhoT(Mat, rho, T));
