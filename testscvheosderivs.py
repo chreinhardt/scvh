@@ -76,7 +76,7 @@ def main():
     
     title("Overlapping with REOS3")
 
-    savefig('testscvheosderivs_dpdrhoofrhot.png', dpi=300, bbox_inches='tight')
+    savefig('testscvheosderivs_dpdrhoofrhot_reos3.png', dpi=300, bbox_inches='tight')
     #show()
 
     fig = gcf()
@@ -85,7 +85,7 @@ def main():
     """
     Plot dP/dT(rho, T).
     """
-    data = numpy.loadtxt("testscvheosderivs_dpdtofrhot_reos3.txt")
+    data = numpy.loadtxt("testscvheosderivs_dpdtofrhot.txt")
 
     print numpy.where(data <= 0.0)
 
