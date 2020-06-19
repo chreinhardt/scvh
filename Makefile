@@ -47,6 +47,9 @@ testscvheoscv: testscvheoscv.o $(OBJ)
 testscvheosderivs: testscvheosderivs.o $(OBJ)
 	cc -o testscvheosderivs testscvheosderivs.o $(OBJ) $(LIBS)
 
+scvheoscalcentropy: scvheoscalcentropy.o $(OBJ)
+	cc -o scvheoscalcentropy scvheoscalcentropy.o $(OBJ) $(LIBS)
+
 clean:
 	rm $(OBJ)
 
