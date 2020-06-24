@@ -50,6 +50,9 @@ testscvheosderivs: testscvheosderivs.o $(OBJ)
 scvheoscalcentropy: scvheoscalcentropy.o $(OBJ)
 	cc -o scvheoscalcentropy scvheoscalcentropy.o $(OBJ) $(LIBS)
 
+scvheoscalcentropyonreos3grid: scvheoscalcentropyonreos3grid.o $(OBJ)
+	cc -o scvheoscalcentropyonreos3grid scvheoscalcentropyonreos3grid.o $(OBJ) $(LIBS)
+
 clean:
 	rm $(OBJ)
 
