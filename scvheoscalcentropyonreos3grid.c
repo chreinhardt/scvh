@@ -152,6 +152,7 @@ int main(int argc, char **argv) {
     Mat = scvheosInitMaterial(iMat, dKpcUnit, dMsolUnit);
     fprintf(stderr, "Done.\n");
     
+#if 0 
     /* Print T axis. */
     printf("T= \n");
     for (i=0; i<nT; i++) {
@@ -165,6 +166,7 @@ int main(int argc, char **argv) {
         printf("%15.7E\n", rho[j]);
     }
     printf("\n");
+#endif
 
     /* Print the entropy. */
     for (i=0; i<nT; i++) {
