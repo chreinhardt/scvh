@@ -77,6 +77,8 @@ def main():
     print "rho_max=", rho_max
     print "T_min  =", T_min
     print "T_max  =", T_max
+    print "s_min  =", s_min
+    print "s_max  =", s_max
 
     print "rho=", rho
     print "T  =", T
