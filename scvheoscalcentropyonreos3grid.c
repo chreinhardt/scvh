@@ -3,7 +3,7 @@
  *
  * Author:   Christian Reinhardt
  * Created:  24.06.2020
- * Modified:
+ * Modified: 29.06.2020
  */
 #include <stdlib.h>
 #include <math.h>
@@ -16,7 +16,7 @@ int main(int argc, char **argv) {
     int iMat = SCVHEOS_H;
     double dKpcUnit = 0.0;
 	double dMsolUnit = 0.0;
-    int const nRho = 88; 
+    int const nRho = 87; 
     double rho[nRho];
     int const nT = 33;
     double T[nT];
@@ -111,7 +111,7 @@ int main(int argc, char **argv) {
     rho[84] = 3.00000000e+01;
     rho[85] = 5.00000000e+01;
     rho[86] = 7.00000000e+01;
-    rho[87] = 1.00000000e+02;
+    //rho[87] = 1.00000000e+02;
 
     /* T axis of REOS3 within the range of SCVH EOS. */
     T[0] = 6.00000000e+01;
