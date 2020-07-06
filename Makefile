@@ -47,11 +47,17 @@ testscvheoscv: testscvheoscv.o $(OBJ)
 testscvheosderivs: testscvheosderivs.o $(OBJ)
 	cc -o testscvheosderivs testscvheosderivs.o $(OBJ) $(LIBS)
 
+scvheoscalcentropyonreos3grid: scvheoscalcentropyonreos3grid.o $(OBJ)
+	cc -o scvheoscalcentropyonreos3grid scvheoscalcentropyonreos3grid.o $(OBJ) $(LIBS)
+
+#
+# Tools.
+#
 scvheoscalcentropy: scvheoscalcentropy.o $(OBJ)
 	cc -o scvheoscalcentropy scvheoscalcentropy.o $(OBJ) $(LIBS)
 
-scvheoscalcentropyonreos3grid: scvheoscalcentropyonreos3grid.o $(OBJ)
-	cc -o scvheoscalcentropyonreos3grid scvheoscalcentropyonreos3grid.o $(OBJ) $(LIBS)
+scvheoscalcintenergy: scvheoscalcintenergy.o $(OBJ)
+	cc -o scvheoscalcintenergy scvheoscalcintenergy.o $(OBJ) $(LIBS)
 
 clean:
 	rm $(OBJ)
