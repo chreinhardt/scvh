@@ -33,7 +33,7 @@ int main(int argc, char **argv) {
     fprintf(fp, "# logrho logP\n");
     for (j=iRhoMin; j<Mat->nRho; j++) {
         fprintf(fp, "%15.7E", Mat->dLogRhoAxis[j]);
-        for (i=iTMin; i<Mat->nT-1; i++) {
+        for (i=iTMin; i<Mat->nT; i++) {
             fprintf(fp, "%15.7E", Mat->dLogPArray[i][j]);
         } 
         fprintf(fp, "\n");
@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
     fprintf(fp, "# logrho logU\n");
     for (j=iRhoMin; j<Mat->nRho; j++) {
         fprintf(fp, "%15.7E", Mat->dLogRhoAxis[j]);
-        for (i=iTMin; i<Mat->nT-1; i++) {
+        for (i=iTMin; i<Mat->nT; i++) {
             fprintf(fp, "%15.7E", Mat->dLogUArray[i][j]);
         } 
         fprintf(fp, "\n");
