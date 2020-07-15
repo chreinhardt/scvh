@@ -16,7 +16,6 @@ int main(int argc, char **argv) {
     int iMat = SCVHEOS_HHE;
     double dKpcUnit = 0.0;
 	double dMsolUnit = 0.0;
-    double rho, T;
     /* Start from log(T) = 2.01 */
     int iTMin = 19;
     /* Start from log(rho) = -7.45 */
@@ -31,13 +30,11 @@ int main(int argc, char **argv) {
     /* Print P(rho, T) on the grid points. */
     fp = fopen("scvheos_hhe_pressure.txt", "w");
 
+    fprintf(fp, "# logrho logP\n");
     for (j=iRhoMin; j<Mat->nRho; j++) {
-        rho = pow(10.0, Mat->dLogRhoAxis[j]);
-        fprintf(fp, "%15.7E", rho);
+        fprintf(fp, "%15.7E", Mat->dLogRhoAxis[j]);
         for (i=iTMin; i<Mat->nT-1; i++) {
-            T = pow(10.0,  Mat->dLogTAxis[i]);
-            fprintf(fp, "%15.7E", pow(10.0, Mat->dLogPArray[i][j]));
-            //fprintf(fp, "%15.7E", scvheosPofRhoT(Mat, rho, T));
+            fprintf(fp, "%15.7E", Mat->dLogPArray[i][j]);
         } 
         fprintf(fp, "\n");
     }
@@ -47,13 +44,11 @@ int main(int argc, char **argv) {
     /* Print u(rho, T) on the grid points. */
     fp = fopen("scvheos_hhe_intenergy.txt", "w");
 
+    fprintf(fp, "# logrho logU\n");
     for (j=iRhoMin; j<Mat->nRho; j++) {
-        rho = pow(10.0, Mat->dLogRhoAxis[j]);
-        fprintf(fp, "%15.7E", rho);
+        fprintf(fp, "%15.7E", Mat->dLogRhoAxis[j]);
         for (i=iTMin; i<Mat->nT-1; i++) {
-            T = pow(10.0,  Mat->dLogTAxis[i]);
-            fprintf(fp, "%15.7E", pow(10.0, Mat->dLogUArray[i][j]));
-            //fprintf(fp, "%15.7E", scvheosUofRhoT(Mat, rho, T));
+            fprintf(fp, "%15.7E", Mat->dLogUArray[i][j]);
         } 
         fprintf(fp, "\n");
     }
