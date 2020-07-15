@@ -50,6 +50,9 @@ testscvheosderivs: testscvheosderivs.o $(OBJ)
 scvheoscalcentropyonreos3grid: scvheoscalcentropyonreos3grid.o $(OBJ)
 	cc -o scvheoscalcentropyonreos3grid scvheoscalcentropyonreos3grid.o $(OBJ) $(LIBS)
 
+scvheos_hhe_limitedtoreos3: scvheos_hhe_limitedtoreos3.o $(OBJ)
+	cc -o scvheos_hhe_limitedtoreos3 scvheos_hhe_limitedtoreos3.o $(OBJ) $(LIBS)
+
 #
 # Tools.
 #
