@@ -1,6 +1,6 @@
 /*
- * Print the pressure and internal energy of a H/He mixture in the region where SCVH EOS and REOS3
- * are defined.
+ * Print the pressure and internal energy of helium in the region where SCVH EOS and REOS3 are
+ * defined.
  *
  * Author:   Christian Reinhardt
  * Created:  15.07.2020
@@ -13,7 +13,7 @@
 
 int main(int argc, char **argv) {
 	SCVHEOSMAT *Mat;
-    int iMat = SCVHEOS_HHE;
+    int iMat = SCVHEOS_HE;
     double dKpcUnit = 0.0;
 	double dMsolUnit = 0.0;
     /* Start from log(T) = 2.01 */
@@ -25,7 +25,7 @@ int main(int argc, char **argv) {
 
     fprintf(stderr, "SCVH EOS: Initializing material %i\n", iMat); 
     Mat = scvheosInitMaterial(iMat, dKpcUnit, dMsolUnit);
-
+    
     fprintf(stderr, "logrho_min= %15.7E logrho_max= %15.7E\n", Mat->dLogRhoAxis[iRhoMin],
             Mat->dLogRhoAxis[Mat->nRho-1]);
 
@@ -33,7 +33,7 @@ int main(int argc, char **argv) {
             Mat->dLogTAxis[Mat->nT-1]);
 
     /* Print P(rho, T) on the grid points. */
-    fp = fopen("scvheos_hhe_pressure.txt", "w");
+    fp = fopen("scvheos_he_pressure.txt", "w");
 
     fprintf(fp, "# logrho logP (iMat= %i, dKpcUnit= %15.7E dMsolUnit= %15.7E)\n", Mat->iMat, dKpcUnit,
             dMsolUnit);
@@ -48,7 +48,7 @@ int main(int argc, char **argv) {
     fclose(fp);
 
     /* Print u(rho, T) on the grid points. */
-    fp = fopen("scvheos_hhe_intenergy.txt", "w");
+    fp = fopen("scvheos_he_intenergy.txt", "w");
 
     fprintf(fp, "# logrho logu (iMat= %i, dKpcUnit= %15.7E dMsolUnit= %15.7E)\n", Mat->iMat, dKpcUnit,
             dMsolUnit);
