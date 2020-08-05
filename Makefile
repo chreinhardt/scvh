@@ -11,7 +11,7 @@ EXE =
 DEFS =
 
 # GNU Science library (uncomment if not needed)
-#GSL_LIB = -lgsl -lgslcblas
+GSL_LIB = -lgsl -lgslcblas
 
 CFLAGS ?= -O3 $(defs) -Wall -std=c99
 
@@ -58,6 +58,9 @@ scvheos_he_limitedtoreos3: scvheos_he_limitedtoreos3.o $(OBJ)
 
 scvheos_hhe_limitedtoreos3: scvheos_hhe_limitedtoreos3.o $(OBJ)
 	cc -o scvheos_hhe_limitedtoreos3 scvheos_hhe_limitedtoreos3.o $(OBJ) $(LIBS)
+
+scvheoscalcentropy_gsl: scvheoscalcentropy_gsl.o $(OBJ)
+	cc -o scvheoscalcentropy_gsl scvheoscalcentropy_gsl.o $(OBJ) $(LIBS)
 
 #
 # Tools.
