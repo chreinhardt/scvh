@@ -79,7 +79,9 @@ def main():
     print "rho=", rho
     print "T  =", T
     print
-    
+
+    index_T = numpy.array([19, 39, 59, 79, 99])
+
     # Split into arrays of constant T
     s_array = numpy.split(s, nT)
     s_calc_array = numpy.split(s_calc, nT)
@@ -98,9 +100,22 @@ def main():
 
     savefig('scvheoscalcentropy_gsl.png', dpi=300, bbox_inches='tight')
 
-    show()
     fig = gcf()
     fig.clear()
+
+    # Plot only a few isotherms
+    for i in index_T:
+        loglog(rho, s_array[i], '-', color='blue')
+        loglog(rho, s_calc_array[i], '--', color='green')
+        print T[index_T]
+
+    title("SCVH EOS for H")
+    xlabel("Log Density [g cm$^{-3}$]")
+    ylabel("Log Entropy [erg g$^{-1}$ K$^{-1}$]")
+
+    savefig('scvheoscalcentropy_gsl.png', dpi=300, bbox_inches='tight')
+
+    show()
 
     exit(0)
 
