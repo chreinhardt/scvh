@@ -34,6 +34,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     int nRho;
     int nT;
     char inFile[256];
+    int nSkip;
     int i, j;
 
     /* 
@@ -64,6 +65,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             strcpy(inFile, "scvh_h_dt_cgs.txt");
             nRho = 201;
             nT = 100;
+            nSkip = 1;
             break;
         case SCVHEOS_HE:
             /*
@@ -72,6 +74,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             strcpy(inFile, "scvh_he_dt_cgs.txt");
             nRho = 201;
             nT = 100;
+            nSkip = 1;
             break;
         case SCVHEOS_HHE:
             /*
@@ -80,6 +83,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             strcpy(inFile, "scvh_hhe_y0.275_dt_cgs.txt");
             nRho = 201;
             nT = 100;
+            nSkip = 1;
             break;
         case SCVHEOS_HHE_LOWRHOT:
             /*
@@ -88,6 +92,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             strcpy(inFile, "scvh_hhe_y0.275_dt_cgs_lowrhot.txt");
             nRho = 80;
             nT = 49;
+            nSkip = 2;
             break;
         default:
             /* Unknown material */
@@ -98,7 +103,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     /*
      * Allocate memory and read the EOS table.
      */
-    if (scvheosReadTable(Mat, inFile, nRho, nT) != SCVHEOS_SUCCESS) {
+    if (scvheosReadTable(Mat, inFile, nRho, nT, nSkip) != SCVHEOS_SUCCESS) {
         fprintf(stderr, "SCVH EOS: Could not open EOS table %s.\n", inFile);
         scvheosFinalizeMaterial(Mat);
         exit(1);
@@ -176,11 +181,10 @@ int scvheosFinalizeMaterial(SCVHEOSMAT *Mat) {
  * He:   nRho = 201, nT = 100, logarithmic spacing (base 10)
  * H/He: nRho = 201, nT = 100, logarithmic spacing (base 10)
  */
-int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT) {
+int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT, int nSkip) {
     FILE *fp;
     char *chLine;
     size_t nCharMax = 256;
-    int nSkip = 1;
     int iRet;
     int i, j;
 

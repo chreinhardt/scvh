@@ -64,7 +64,7 @@ typedef struct scvheosMat {
 /* Functions to initialize and finalize materials. */
 SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit);
 int scvheosFinalizeMaterial(SCVHEOSMAT *Mat);
-int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile, int nRho, int nT);
+int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile, int nRho, int nT, int nSkip);
 
 /* Calculate EOS values. */
 double scvheosLogPofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
