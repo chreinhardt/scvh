@@ -129,8 +129,8 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     }
 
     /* Define limits of the table (or extrapolation). */
-    Mat->LogRhoMin = 1e-15;
-    Mat->LogRhoMax = 3e3;
+    Mat->LogRhoMin = -15.0;
+    Mat->LogRhoMax = 3.0;
     Mat->LogTMin = 1.0;
     Mat->LogTMax = 1e8;
 
