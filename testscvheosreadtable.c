@@ -95,9 +95,9 @@ int main(int argc, char **argv) {
         for (j=0; j<Mat->nRho; j++) {
             fprintf(fp, "%.8f ", Mat->dLogTAxis[i]);
             fprintf(fp, "%.8f ", Mat->dLogRhoAxis[j]);
-            fprintf(fp, "%.8f ", Mat->dLogPArray[j*Mat->nT+i]);
-            fprintf(fp, "%.8f ", Mat->dLogUArray[j*Mat->nT+i]);
-            fprintf(fp, "%.8f", Mat->dLogSArray[j*Mat->nT+i]);
+            fprintf(fp, "%.8f ", gsl_interp2d_get(Mat->InterpLogP, Mat->dLogPArray, i, j));
+            fprintf(fp, "%.8f ", gsl_interp2d_get(Mat->InterpLogU, Mat->dLogUArray, i, j));
+            fprintf(fp, "%.8f", gsl_interp2d_get(Mat->InterpLogS, Mat->dLogSArray, i, j));
             fprintf(fp, "\n");
         }
     }
