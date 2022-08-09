@@ -1,6 +1,6 @@
 
 # Object files from the SCVH EOS library
-SCVHEOS_OBJ = scvheos.o interpBilinear.o
+SCVHEOS_OBJ = scvheos.o
 
 OBJ = $(SCVHEOS_OBJ)
 
@@ -31,6 +31,9 @@ testscvheos: testscvheos.o $(OBJ)
 
 testscvheosreadtable: testscvheosreadtable.o $(OBJ)
 	cc -o testscvheosreadtable testscvheosreadtable.o $(OBJ) $(LIBS)
+
+testscvheosinterp: testscvheosinterp.o $(OBJ)
+	cc -o testscvheosinterp testscvheosinterp.o $(OBJ) $(LIBS)
 
 testscvheospressure: testscvheospressure.o $(OBJ)
 	cc -o testscvheospressure testscvheospressure.o $(OBJ) $(LIBS)
