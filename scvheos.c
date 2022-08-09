@@ -351,6 +351,17 @@ int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
  */
 double scvheosLogPofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     double logP;
+
+    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
+	    fprintf(stderr, "scvheosLogPofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
+        exit(1);
+    }
+
+    if (gsl_interp2d_eval_e_extrap(Mat->InterpLogP, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogPArray, logT, logrho,
+			    Mat->xAccP, Mat->yAccP, &logP) != GSL_SUCCESS) {
+	    fprintf(stderr, "scvheosLogPofLogRhoLogT: Interpolation failed (logrho= %15.7E logT= %15.7E).\n", logrho, logT);
+	    exit(1);
+    }
  
     return logP;
 }
