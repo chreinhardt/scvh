@@ -41,6 +41,12 @@ typedef struct scvheosMat {
     int nRho;
     int nT;
 
+    /* Define limits of the table (or extrapolation). */
+    double LogRhoMin;
+    double LogRhoMax;
+    double LogTMin;
+    double LogTMax;
+
     /* Convert units to code units. */
     double dKpcUnit;
     double dMsolUnit;
@@ -48,6 +54,23 @@ typedef struct scvheosMat {
 	double dErgPerGmUnit;
 	double dGmPerCcUnit;
 	double dSecUnit;
+
+    /* GSL 2D interpolator */
+    const gsl_interp2d_type *InterpType;
+    gsl_interp2d *InterpLogP;
+    gsl_interp2d *InterpLogU;
+    gsl_interp2d *InterpLogS;
+    gsl_interp2d *InterpLogCs;
+
+    /* Accelerator */
+    gsl_interp_accel *xAccP;
+    gsl_interp_accel *yAccP;
+    gsl_interp_accel *xAccU;
+    gsl_interp_accel *yAccU;
+    gsl_interp_accel *xAccS;
+    gsl_interp_accel *yAccS;
+    gsl_interp_accel *xAccCs;
+    gsl_interp_accel *yAccCs;
 
     /* The EOS tables are logarithmic.*/
     double *dLogRhoAxis;

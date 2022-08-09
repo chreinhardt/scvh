@@ -15,6 +15,9 @@
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
+#include <gsl/gsl_errno.h>
+#include <gsl/gsl_math.h>
+#include <gsl/gsl_interp2d.h>
 #include "scvheos.h"
 
 /*
@@ -34,6 +37,9 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     int nT;
     char inFile[256];
     int nSkip;
+    /* GSL interpolator type */
+    const gsl_interp2d_type *InterpType;
+    int bInterpBilinear = 1;
 
     /* 
      * Allocate memory and initialize the data.
@@ -121,6 +127,50 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
         /* code time --> seconds */
         Mat->dSecUnit = sqrt(1/(Mat->dGmPerCcUnit*GCGS));
     }
+
+    /* Define limits of the table (or extrapolation). */
+    Mat->LogRhoMin = 1e-15;
+    Mat->LogRhoMax = 3e3;
+    Mat->LogTMin = 1.0;
+    Mat->LogTMax = 1e8;
+
+    /*
+     * Initialize the GSL interpolator.
+     */
+    if (bInterpBilinear) {
+        InterpType = gsl_interp2d_bilinear;
+    } else {
+        InterpType = gsl_interp2d_bicubic;
+    }
+
+    Mat->xAccP = gsl_interp_accel_alloc();
+    Mat->yAccP = gsl_interp_accel_alloc();
+    Mat->xAccU = gsl_interp_accel_alloc();
+    Mat->yAccU = gsl_interp_accel_alloc();
+    Mat->xAccS = gsl_interp_accel_alloc();
+    Mat->yAccS = gsl_interp_accel_alloc();
+    Mat->xAccCs = gsl_interp_accel_alloc();
+    Mat->yAccCs = gsl_interp_accel_alloc();
+
+    /* x corresponts to T and y corresponds to rho. */
+    Mat->InterpLogP = gsl_interp2d_alloc(InterpType, Mat->nT, Mat->nRho);
+    Mat->InterpLogU = gsl_interp2d_alloc(InterpType, Mat->nT, Mat->nRho);
+    Mat->InterpLogS = gsl_interp2d_alloc(InterpType, Mat->nT, Mat->nRho);
+    Mat->InterpLogCs = gsl_interp2d_alloc(InterpType, Mat->nT, Mat->nRho);
+
+    gsl_interp2d_init(Mat->InterpLogP, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogPArray, Mat->nT, Mat->nRho);
+    gsl_interp2d_init(Mat->InterpLogU, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogUArray, Mat->nT, Mat->nRho);
+    gsl_interp2d_init(Mat->InterpLogS, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogSArray, Mat->nT, Mat->nRho);
+
+#if 0
+    /* The sound speed can only be calculated after the interpolation in P and u is initialized. */
+    if (scvheosGenerateSoundSpeedTable(Mat) != SCVHEOS_SUCCESS) {
+        fprintf(stderr, "scvheosInitMaterial: Could not generate table for sound speed.\n");
+        exit(1);
+    }
+#endif
+    gsl_interp2d_init(Mat->InterpLogCs, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogCArray, Mat->nT, Mat->nRho);
+
     return Mat;
 }
 
