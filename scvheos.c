@@ -16,7 +16,6 @@
 #include <assert.h>
 #include <string.h>
 #include "scvheos.h"
-#include "interpBilinear.h"
 
 /*
  * Initalize a material.
@@ -35,7 +34,6 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     int nT;
     char inFile[256];
     int nSkip;
-    int i, j;
 
     /* 
      * Allocate memory and initialize the data.
@@ -130,39 +128,14 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
  * Free memory.
  */
 int scvheosFinalizeMaterial(SCVHEOSMAT *Mat) {
-    int i;
-
     if (Mat != NULL) {
         if (Mat->dLogRhoAxis != NULL) free(Mat->dLogRhoAxis);
         if (Mat->dLogTAxis != NULL) free(Mat->dLogTAxis);
 
-        if (Mat->dLogUArray != NULL) {
-            for (i=0; i<Mat->nT; i++) {
-                if (Mat->dLogUArray[i] != NULL) free(Mat->dLogUArray[i]);
-            }
-            free(Mat->dLogUArray);
-        }
-
-        if (Mat->dLogPArray != NULL) {
-            for (i=0; i<Mat->nT; i++) {
-                if (Mat->dLogPArray[i] != NULL) free(Mat->dLogPArray[i]);
-            }
-            free(Mat->dLogPArray);
-        }
-
-        if (Mat->dLogSArray != NULL) {
-            for (i=0; i<Mat->nT; i++) {
-                if (Mat->dLogSArray[i] != NULL) free(Mat->dLogSArray[i]);
-            }
-            free(Mat->dLogSArray);
-        }
-
-        if (Mat->dLogCArray != NULL) {
-            for (i=0; i<Mat->nT; i++) {
-                if (Mat->dLogCArray[i] != NULL) free(Mat->dLogCArray[i]);
-            }
-            free(Mat->dLogCArray);
-        }
+        if (Mat->dLogUArray != NULL) free(Mat->dLogUArray);
+        if (Mat->dLogPArray != NULL) free(Mat->dLogPArray); 
+        if (Mat->dLogSArray != NULL) free(Mat->dLogSArray);
+        if (Mat->dLogCArray != NULL) free(Mat->dLogCArray);
 
         free(Mat);
     }
@@ -200,16 +173,10 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT, int nSk
     Mat->dLogRhoAxis = (double *) calloc(nRho, sizeof(double));
     Mat->dLogTAxis = (double *) calloc(nT, sizeof(double));
 
-    /* Thomas' code requires the tables to be of the form u[T][rho] and P[T][rho]. */
-    Mat->dLogUArray = (double **) calloc(nT, sizeof(double*));
-    Mat->dLogPArray = (double **) calloc(nT, sizeof(double*));
-    Mat->dLogSArray = (double **) calloc(nT, sizeof(double*));
-
-    for (i=0; i<nT; i++) {
-        Mat->dLogUArray[i] = (double *) calloc(nRho, sizeof(double));
-        Mat->dLogPArray[i] = (double *) calloc(nRho, sizeof(double));
-        Mat->dLogSArray[i] = (double *) calloc(nRho, sizeof(double));
-    }
+    /* The GSL interpolation functions require the tables are 1D arrays. */
+    Mat->dLogUArray = (double *) calloc(nT*nRho, sizeof(double));
+    Mat->dLogPArray = (double *) calloc(nT*nRho, sizeof(double));
+    Mat->dLogSArray = (double *) calloc(nT*nRho, sizeof(double));
 
     if ((Mat->dLogRhoAxis == NULL) || (Mat->dLogTAxis == NULL) || (Mat->dLogUArray == NULL) ||
             (Mat->dLogPArray == NULL) || (Mat->dLogSArray == NULL)) {
@@ -236,7 +203,11 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT, int nSk
                 return SCVHEOS_FAIL;
             }
 
-            iRet = sscanf(chLine, "%lf %lf %lf %lf %lf", &Mat->dLogTAxis[i], &Mat->dLogRhoAxis[j], &Mat->dLogPArray[i][j], &Mat->dLogUArray[i][j], &Mat->dLogSArray[i][j]);
+            /* We store the data as A[T][rho]. */
+            iRet = sscanf(chLine, "%lf %lf %lf %lf %lf", &Mat->dLogTAxis[i], &Mat->dLogRhoAxis[j],
+                                                         &Mat->dLogPArray[j*nT+i],
+                                                         &Mat->dLogUArray[j*nT+i],
+                                                         &Mat->dLogSArray[j*nT+i]);
 
             /* Check if the number of matches is correct. */
             if (iRet != 5) {
@@ -245,8 +216,8 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT, int nSk
 
             if ((pow(Mat->dLogBase, Mat->dLogRhoAxis[j]) < 0.0) ||
                 (pow(Mat->dLogBase, Mat->dLogTAxis[i]) < 0.0) ||
-                (pow(Mat->dLogBase, Mat->dLogUArray[i][j]) < 0.0) ||
-                (pow(Mat->dLogBase, Mat->dLogSArray[i][j]) < 0.0)) {
+                (pow(Mat->dLogBase, Mat->dLogUArray[j*nT+i]) < 0.0) ||
+                (pow(Mat->dLogBase, Mat->dLogSArray[j*nT+i]) < 0.0)) {
                 return SCVHEOS_FAIL;
             }
         }
@@ -330,9 +301,7 @@ int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
  */
 double scvheosLogPofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     double logP;
-
-    logP = interpolateValueBilinear(logrho, logT, Mat->nT, Mat->nRho, Mat->dLogRhoAxis, Mat->dLogTAxis, Mat->dLogPArray);
-    
+ 
     return logP;
 }
 
@@ -384,10 +353,7 @@ double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
  */
 double scvheosLogUofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     double logu;
-
-    logu = interpolateValueBilinear(logrho, logT, Mat->nT, Mat->nRho, Mat->dLogRhoAxis,
-                                    Mat->dLogTAxis, Mat->dLogUArray);
-
+    
     return logu;
 }
 
@@ -417,7 +383,6 @@ double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
 double scvheosLogSofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     double logs;
 
-    logs = interpolateValueBilinear(logrho, logT, Mat->nT, Mat->nRho, Mat->dLogRhoAxis, Mat->dLogTAxis, Mat->dLogSArray);
     
     return logs;
 }
