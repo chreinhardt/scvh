@@ -414,6 +414,17 @@ double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
  */
 double scvheosLogUofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     double logu;
+
+    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
+	    fprintf(stderr, "scvheosLogUofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
+        exit(1);
+    }
+
+    if (gsl_interp2d_eval_e_extrap(Mat->InterpLogU, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogUArray, logT, logrho,
+			    Mat->xAccU, Mat->yAccU, &logu) != GSL_SUCCESS) {
+	    fprintf(stderr, "scvheosLogUofLogRhoLogT: Interpolation failed (logrho= %15.7E logT= %15.7E).\n", logrho, logT);
+	    exit(1);
+    }
     
     return logu;
 }

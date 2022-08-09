@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
 
     fclose(fp);
 
-    /* P(rho, T). */
+    /* logP(logrho, logT). */
     fprintf(stderr, "Interpolating logP(logrho, logT).\n");
     fp = fopen("testscvheosinterp_logpress.txt", "w");
 
@@ -80,6 +80,22 @@ int main(int argc, char **argv) {
     for (int i=0; i<nT; i++) {
         for (int j=0; j<nRho; j++) {
             fprintf(fp, "%15.7E", scvheosLogPofLogRhoLogT(Mat, logrhoAxis[j], logTAxis[i]));
+        } 
+        fprintf(fp, "\n");
+    }
+
+    fclose(fp);
+
+    /* logu(logrho, logT). */
+    fprintf(stderr, "Interpolating logU(logrho, logT).\n");
+    fp = fopen("testscvheosinterp_intenergy.txt", "w");
+
+    fprintf(fp, "# Internal energy logU(logrho, logT) (nRho = %i nT= %i)\n", nRho, nT);
+    fprintf(fp, "# Interpolator: %s (GSL)\n", gsl_interp2d_name(Mat->InterpLogU));
+
+    for (int i=0; i<nT; i++) {
+        for (int j=0; j<nRho; j++) {
+            fprintf(fp, "%15.7E", scvheosLogUofLogRhoLogT(Mat, logrhoAxis[j], logTAxis[i]));
         } 
         fprintf(fp, "\n");
     }
