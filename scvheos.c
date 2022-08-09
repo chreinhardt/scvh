@@ -81,6 +81,14 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             nRho = 201;
             nT = 100;
             break;
+        case SCVHEOS_HHE_LOWRHOT:
+            /*
+             * Hydrogen / Helium mixture in Solar abundance limited to low rho and T.
+             */
+            strcpy(inFile, "scvh_hhe_y0.275_dt_cgs_lowrhot.txt");
+            nRho = 80;
+            nT = 49;
+            break;
         default:
             /* Unknown material */
             scvheosFinalizeMaterial(Mat);
