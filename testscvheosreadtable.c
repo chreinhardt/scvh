@@ -14,7 +14,8 @@
 
 int main(int argc, char **argv) {
     SCVHEOSMAT *Mat;
-    int iMat = SCVHEOS_H;
+    //int iMat = SCVHEOS_HHE_LOWRHOT;
+    int iMat = SCVHEOS_HHE;
     double dKpcUnit = 0.0;
 	double dMsolUnit = 0.0;
     FILE *fp;
@@ -48,7 +49,7 @@ int main(int argc, char **argv) {
     for (j=0; j<Mat->nRho; j++) {
         fprintf(fp, "%15.7E", Mat->dLogRhoAxis[j]);
         for (i=0; i<Mat->nT; i++) {
-            fprintf(fp, "%15.7E", Mat->dLogPArray[i][j]);
+            fprintf(fp, "%15.7E", Mat->dLogPArray[j*Mat->nT+i]);
         }
         
         fprintf(fp, "\n");
@@ -63,7 +64,7 @@ int main(int argc, char **argv) {
     for (j=0; j<Mat->nRho; j++) {
         fprintf(fp, "%15.7E", Mat->dLogRhoAxis[j]);
         for (i=0; i<Mat->nT; i++) {
-            fprintf(fp, "%15.7E", Mat->dLogUArray[i][j]);
+            fprintf(fp, "%15.7E", Mat->dLogUArray[j*Mat->nT+i]);
         }
         
         fprintf(fp, "\n");
@@ -78,12 +79,30 @@ int main(int argc, char **argv) {
     for (j=0; j<Mat->nRho; j++) {
         fprintf(fp, "%15.7E", Mat->dLogRhoAxis[j]);
         for (i=0; i<Mat->nT; i++) {
-            fprintf(fp, "%15.7E", Mat->dLogSArray[i][j]);
+            fprintf(fp, "%15.7E", Mat->dLogSArray[j*Mat->nT+i]);
         }
         
         fprintf(fp, "\n");
     }
     fclose(fp);
+
+    /*
+     * Print the EOS table.
+     */
+    fp = fopen("testscvheosreadtable.txt", "w");
+
+    for (i=0; i<Mat->nT; i++) {
+        for (j=0; j<Mat->nRho; j++) {
+            fprintf(fp, "%.8f ", Mat->dLogTAxis[i]);
+            fprintf(fp, "%.8f ", Mat->dLogRhoAxis[j]);
+            fprintf(fp, "%.8f ", Mat->dLogPArray[j*Mat->nT+i]);
+            fprintf(fp, "%.8f ", Mat->dLogUArray[j*Mat->nT+i]);
+            fprintf(fp, "%.8f", Mat->dLogSArray[j*Mat->nT+i]);
+            fprintf(fp, "\n");
+        }
+    }
+    fclose(fp);
+
 
     printf("Free memory\n");
     scvheosFinalizeMaterial(Mat);
