@@ -520,6 +520,47 @@ double scvheosdLogPdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double lo
 }
 
 /*
+ * Calculate the derivative dlogP/dlogT(logrho, logT).
+ */
+double scvheosdLogPdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
+    /* Finite difference. */
+    double h = 1e-5*logT;
+    double dLogPdLogT;
+
+    if (!scvheosCheckBoundsLogRhoLogT(Mat, logrho, logT)) {
+	    fprintf(stderr, "scvheosdPdTofRhoT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
+        exit(1);
+    }
+
+    /* If (rho, T) is inside of the EOS table use GSL. */
+    if (scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
+        if (gsl_interp2d_eval_deriv_x_e(Mat->InterpLogP, Mat->dLogTAxis, Mat->dLogRhoAxis,
+            Mat->dLogPArray, logT, logrho, Mat->xAccP, Mat->yAccP, &dLogPdLogT) == GSL_EDOM) {
+            fprintf(stderr, "scvheosdLogPdLogTofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
+            exit(1);
+        }
+        return dLogPdLogT;
+    }
+
+    if ((logT-h > Mat->LogTMin) && (logT+h < Mat->LogTMax)) {
+        /* Central difference. */
+        dLogPdLogT = (scvheosLogPofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogPofLogRhoLogT(Mat, logrho, logT-h))/(2.0*h);
+    } else if (logT-h > Mat->LogTMin) {
+        /* Backward finite difference. */
+        dLogPdLogT = (scvheosLogPofLogRhoLogT(Mat, logrho, logT)-scvheosLogPofLogRhoLogT(Mat, logrho, logT-h))/h;
+    } else if (logT+h < Mat->LogTMax) {
+        /* Forward finite difference. */
+        dLogPdLogT = (scvheosLogPofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogPofLogRhoLogT(Mat, logrho, logT))/h;
+    } else {
+        /* Both points are problematic so h is reduced. */
+        h *= 1e-4;
+        dLogPdLogT = (scvheosLogPofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogPofLogRhoLogT(Mat, logrho, logT-h))/(2.0*h);
+    }
+
+    return dLogPdLogT;
+}
+
+/*
  * Calculate the derivative dPdRho(rho, T).
  */
 double scvheosdPdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
