@@ -549,6 +549,29 @@ double scvheosdSdTofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     return dSdT;
 }
 
+/*
+ * Check if (logrho, logT) is inside of the eos table.
+ */
+int scvheosCheckTableBoundsLogRhoLogT(REOS3MAT *Mat, double logrho, double logT) {
+    if ((logrho >= Mat->dLogRhoAxis[0]) && (logrho <= Mat->dLogRhoAxis[Mat->nRho-1]) && (logT >= Mat->dLogTAxis[0]) &&
+        (logT <= Mat->dLogTAxis[Mat->nT-1])) {
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+/*
+ * Check if LogRhoMin <= logrho <= LogRhoMax and LogTMin <= logT <= LogTMax.
+ */
+int scvheosCheckBoundsLogRhoLogT(REOS3MAT *Mat, double logrho, double logT) {
+    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
 #if 0
 /*
  * Calculate the sound speed cs(rho, T).
