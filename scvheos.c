@@ -479,6 +479,47 @@ double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
 }
 
 /*
+ * Calculate the derivative dlogP/dlogrho(logrho, logT).
+ */
+double scvheosdLogPdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
+    /* Finite difference. */
+    double h = 1e-5*logrho;
+    double dLogPdLogRho;
+
+    if (!scvheosCheckBoundsLogRhoLogT(Mat, logrho, logT)) {
+	    fprintf(stderr, "scvheosdPdRhoofRhoT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
+        exit(1);
+    }
+
+    /* If (rho, T) is inside of the EOS table use GSL. */
+    if (scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
+        if (gsl_interp2d_eval_deriv_y_e(Mat->InterpLogP, Mat->dLogTAxis, Mat->dLogRhoAxis,
+            Mat->dLogPArray, logT, logrho, Mat->xAccP, Mat->yAccP, &dLogPdLogRho) == GSL_EDOM) {
+            fprintf(stderr, "scvheosdLogPdLogRhoofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
+            exit(1);
+        }
+        return dLogPdLogRho;
+    }
+    
+    if ((logrho-h > Mat->LogRhoMin) && (logrho+h < Mat->LogRhoMax)) {
+        /* Central difference. */
+        dLogPdLogRho = (scvheosLogPofLogRhoLogT(Mat, logrho+h, logT)-scvheosLogPofLogRhoLogT(Mat, logrho-h, logT))/(2.0*h);
+    } else if (logrho-h > Mat->LogRhoMin) {
+        /* Backward finite difference. */
+        dLogPdLogRho = (scvheosLogPofLogRhoLogT(Mat, logrho, logT) - scvheosLogPofLogRhoLogT(Mat, logrho-h, logT))/h;
+    } else if (logrho+h < Mat->LogRhoMax) {
+        /* Forward finite difference. */
+        dLogPdLogRho = (scvheosLogPofLogRhoLogT(Mat, logrho+h, logT) - scvheosLogPofLogRhoLogT(Mat, logrho, logT))/h;
+    } else {
+        /* Both points are problematic so h is reduced. */
+        h *= 1e-4;
+        dLogPdLogRho = (scvheosLogPofLogRhoLogT(Mat, logrho+h, logT) - scvheosLogPofLogRhoLogT(Mat, logrho-h, logT))/(2.0*h);
+    }
+
+    return dLogPdLogRho;
+}
+
+/*
  * Calculate the derivative dPdRho(rho, T).
  */
 double scvheosdPdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
