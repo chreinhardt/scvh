@@ -552,7 +552,7 @@ double scvheosdSdTofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
 /*
  * Check if (logrho, logT) is inside of the eos table.
  */
-int scvheosCheckTableBoundsLogRhoLogT(REOS3MAT *Mat, double logrho, double logT) {
+int scvheosCheckTableBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     if ((logrho >= Mat->dLogRhoAxis[0]) && (logrho <= Mat->dLogRhoAxis[Mat->nRho-1]) && (logT >= Mat->dLogTAxis[0]) &&
         (logT <= Mat->dLogTAxis[Mat->nT-1])) {
         return TRUE;
@@ -564,7 +564,7 @@ int scvheosCheckTableBoundsLogRhoLogT(REOS3MAT *Mat, double logrho, double logT)
 /*
  * Check if LogRhoMin <= logrho <= LogRhoMax and LogTMin <= logT <= LogTMax.
  */
-int scvheosCheckBoundsLogRhoLogT(REOS3MAT *Mat, double logrho, double logT) {
+int scvheosCheckBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
         return FALSE;
     }
