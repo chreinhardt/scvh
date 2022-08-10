@@ -380,10 +380,6 @@ double scvheosPofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     /* Interpolate in the table. */
     P = pow(Mat->dLogBase, scvheosLogPofLogRhoLogT(Mat, logrho, logT));
 
-    if (P < 0.0) {
-        fprintf(stderr, "scvheosPofRhoT: Negative pressure for rho=%15.7E T=%15.7E (P=%15.7E)\n", rho, T, P);
-    }
-
     return P;
 }
 
@@ -441,10 +437,6 @@ double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     logT = log10(T);
     
     u = pow(Mat->dLogBase, scvheosLogUofLogRhoLogT(Mat, logrho, logT));
-
-    if (u < 0.0) {
-        fprintf(stderr, "scvheosUofRhoT: Negative internal energy for rho=%15.7E T=%15.7E (u=%15.7E)\n", rho, T, u);
-    }
 
     return u;
 }
