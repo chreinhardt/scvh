@@ -102,6 +102,22 @@ int main(int argc, char **argv) {
 
     fclose(fp);
 
+    /* logs(logrho, logT). */
+    fprintf(stderr, "Interpolating logS(logrho, logT).\n");
+    fp = fopen("testscvheosinterp_entropy.txt", "w");
+
+    fprintf(fp, "# Entropy logS(logrho, logT) (nRho = %i nT= %i)\n", nRho, nT);
+    fprintf(fp, "# Interpolator: %s (GSL)\n", gsl_interp2d_name(Mat->InterpLogS));
+
+    for (int i=0; i<nT; i++) {
+        for (int j=0; j<nRho; j++) {
+            fprintf(fp, "%15.7E", scvheosLogSofLogRhoLogT(Mat, logrhoAxis[j], logTAxis[i]));
+        } 
+        fprintf(fp, "\n");
+    }
+
+    fclose(fp);
+
     /* Free memory. */
     scvheosFinalizeMaterial(Mat);
     
