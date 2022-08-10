@@ -8,6 +8,8 @@
 #ifndef SCVHEOS_HINCLUDED
 #define SCVHEOS_HINCLUDED
 
+#include <gsl/gsl_interp2d.h>
+
 /*
  * Version.
  */
