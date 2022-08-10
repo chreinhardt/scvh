@@ -112,8 +112,8 @@ double scvheosdSdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosdSdTofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 
 
-int scvheosCheckTableBoundsLogRhoLogT(REOS3MAT *Mat, double logrho, double logT);
-int scvheosCheckBoundsLogRhoLogT(REOS3MAT *Mat, double logrho, double logT);
+int scvheosCheckTableBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
+int scvheosCheckBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 
 # if 0
 double scvheosCsofRhoT(SCVHEOSMAT *Mat, double rho, double T);
