@@ -108,6 +108,9 @@ double scvheosdLogPdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT
 double scvheosdLogUdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 double scvheosdLogUdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 
+double scvheosdLogSdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
+double scvheosdLogSdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
+
 double scvheosdPdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosdPdTofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 
