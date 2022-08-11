@@ -602,6 +602,47 @@ double scvheosdLogUdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double lo
 }
 
 /*
+ * Calculate the derivative dlogu/dlogT(logrho, logT).
+ */
+double scvheosdLogUdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
+    /* Finite difference. */
+    double h = 1e-5*logT;
+    double dLogUdLogT;
+
+    if (!scvheosCheckBoundsLogRhoLogT(Mat, logrho, logT)) {
+	    fprintf(stderr, "scvheosdLogUdLogTofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
+        exit(1);
+    }
+
+    /* If (rho, T) is inside of the EOS table use GSL. */
+    if (scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
+        if (gsl_interp2d_eval_deriv_x_e(Mat->InterpLogU, Mat->dLogTAxis, Mat->dLogRhoAxis,
+            Mat->dLogUArray, logT, logrho, Mat->xAccU, Mat->yAccU, &dLogUdLogT) == GSL_EDOM) {
+            fprintf(stderr, "scvheosdLogUdLogTofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
+            exit(1);
+        }
+        return dLogUdLogT;
+    }
+
+    if ((logT-h > Mat->LogTMin) && (logT+h < Mat->LogTMax)) {
+        /* Central difference. */
+        dLogUdLogT = (scvheosLogUofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogUofLogRhoLogT(Mat, logrho, logT-h))/(2.0*h);
+    } else if (logT-h > Mat->LogTMin) {
+        /* Backward finite difference. */
+        dLogUdLogT = (scvheosLogUofLogRhoLogT(Mat, logrho, logT)-scvheosLogUofLogRhoLogT(Mat, logrho, logT-h))/h;
+    } else if (logT+h < Mat->LogTMax) {
+        /* Forward finite difference. */
+        dLogUdLogT = (scvheosLogUofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogUofLogRhoLogT(Mat, logrho, logT))/h;
+    } else {
+        /* Both points are problematic so h is reduced. */
+        h *= 1e-4;
+        dLogUdLogT = (scvheosLogUofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogUofLogRhoLogT(Mat, logrho, logT-h))/(2.0*h);
+    }
+
+    return dLogUdLogT;
+}
+
+/*
  * Calculate the derivative dPdRho(rho, T).
  */
 double scvheosdPdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
