@@ -528,7 +528,7 @@ double scvheosdLogPdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT
     double dLogPdLogT;
 
     if (!scvheosCheckBoundsLogRhoLogT(Mat, logrho, logT)) {
-	    fprintf(stderr, "scvheosdPdTofRhoT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
+	    fprintf(stderr, "scvheosdLogPdLogTofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
         exit(1);
     }
 
