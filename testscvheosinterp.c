@@ -5,7 +5,7 @@
  *
  * Author: Christian Reinhardt
  * Created: 09.08.2022
- * Modified:
+ * Modified: 12.08.2022
  */
 #include <math.h>
 #include <stdio.h>
@@ -88,7 +88,7 @@ int main(int argc, char **argv) {
 
     /* logu(logrho, logT). */
     fprintf(stderr, "Interpolating logU(logrho, logT).\n");
-    fp = fopen("testscvheosinterp_intenergy.txt", "w");
+    fp = fopen("testscvheosinterp_logintenergy.txt", "w");
 
     fprintf(fp, "# Internal energy logU(logrho, logT) (nRho = %i nT= %i)\n", nRho, nT);
     fprintf(fp, "# Interpolator: %s (GSL)\n", gsl_interp2d_name(Mat->InterpLogU));
@@ -104,7 +104,7 @@ int main(int argc, char **argv) {
 
     /* logs(logrho, logT). */
     fprintf(stderr, "Interpolating logS(logrho, logT).\n");
-    fp = fopen("testscvheosinterp_entropy.txt", "w");
+    fp = fopen("testscvheosinterp_logentropy.txt", "w");
 
     fprintf(fp, "# Entropy logS(logrho, logT) (nRho = %i nT= %i)\n", nRho, nT);
     fprintf(fp, "# Interpolator: %s (GSL)\n", gsl_interp2d_name(Mat->InterpLogS));
@@ -112,6 +112,54 @@ int main(int argc, char **argv) {
     for (int i=0; i<nT; i++) {
         for (int j=0; j<nRho; j++) {
             fprintf(fp, "%15.7E", scvheosLogSofLogRhoLogT(Mat, logrhoAxis[j], logTAxis[i]));
+        } 
+        fprintf(fp, "\n");
+    }
+
+    fclose(fp);
+
+    /* P(rho, T). */
+    fprintf(stderr, "Interpolating P(rho, T).\n");
+    fp = fopen("testscvheosinterp_press.txt", "w");
+
+    fprintf(fp, "# Pressure P(rho, T) (nRho = %i nT= %i)\n", nRho, nT);
+    fprintf(fp, "# Interpolator: %s (GSL)\n", gsl_interp2d_name(Mat->InterpLogP));
+
+    for (int i=0; i<nT; i++) {
+        for (int j=0; j<nRho; j++) {
+            fprintf(fp, "%15.7E", scvheosPofRhoT(Mat, pow(Mat->dLogBase, logrhoAxis[j]), pow(Mat->dLogBase, logTAxis[i])));
+        } 
+        fprintf(fp, "\n");
+    }
+
+    fclose(fp);
+
+    /* u(rho, T). */
+    fprintf(stderr, "Interpolating U(rho, T).\n");
+    fp = fopen("testscvheosinterp_intenergy.txt", "w");
+
+    fprintf(fp, "# Internal energy U(rho, T) (nRho = %i nT= %i)\n", nRho, nT);
+    fprintf(fp, "# Interpolator: %s (GSL)\n", gsl_interp2d_name(Mat->InterpLogU));
+
+    for (int i=0; i<nT; i++) {
+        for (int j=0; j<nRho; j++) {
+            fprintf(fp, "%15.7E", scvheosUofRhoT(Mat, pow(Mat->dLogBase, logrhoAxis[j]), pow(Mat->dLogBase, logTAxis[i])));
+        } 
+        fprintf(fp, "\n");
+    }
+
+    fclose(fp);
+
+    /* s(rho, T). */
+    fprintf(stderr, "Interpolating S(rho, T).\n");
+    fp = fopen("testscvheosinterp_entropy.txt", "w");
+
+    fprintf(fp, "# Entropy S(rho, T) (nRho = %i nT= %i)\n", nRho, nT);
+    fprintf(fp, "# Interpolator: %s (GSL)\n", gsl_interp2d_name(Mat->InterpLogS));
+
+    for (int i=0; i<nT; i++) {
+        for (int j=0; j<nRho; j++) {
+            fprintf(fp, "%15.7E", scvheosSofRhoT(Mat, pow(Mat->dLogBase, logrhoAxis[j]), pow(Mat->dLogBase, logTAxis[i])));
         } 
         fprintf(fp, "\n");
     }
