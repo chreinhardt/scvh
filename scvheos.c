@@ -456,6 +456,27 @@ double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
 }
 
 /*
+ * Calculate the pressure P(rho, u).
+ */
+double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
+    double logrho;
+    double logu;
+    double logT;
+    double P;
+
+    logrho = log10(rho);
+    logu = log10(u);
+
+    /* Calculate logT. */
+    logT = scvheosLogTofLogRhoLogU(Mat, logrho, logu);
+
+    /* Interpolate in the table. */
+    P = pow(Mat->dLogBase, scvheosLogPofLogRhoLogT(Mat, logrho, logT));
+
+    return P;
+}
+
+/*
  * Calculate the entropy logT(logrho, logu).
  */
 double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
