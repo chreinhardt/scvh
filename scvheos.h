@@ -86,6 +86,13 @@ typedef struct scvheosMat {
     double dLogBase;
 } SCVHEOSMAT;
 
+/* Data structure needed for the GSL root finder. */
+struct LogUofLogRhoLogT_GSL_Params {
+    SCVHEOSMAT *Mat;
+    double logrho;
+    double logu;
+};
+
 /* Functions to initialize and finalize materials. */
 SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit);
 int scvheosFinalizeMaterial(SCVHEOSMAT *Mat);
@@ -111,6 +118,8 @@ double scvheosdLogUdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT
 double scvheosdLogSdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 double scvheosdLogSdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 
+double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu);
+
 double scvheosdPdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosdPdTofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 
@@ -123,6 +132,9 @@ double scvheosdSdTofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 
 int scvheosCheckTableBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 int scvheosCheckBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
+
+/* Functions required by the GSL root finder. */
+double LogUofLogRhoLogT_GSL_rootfinder(double logT, void *params);
 
 # if 0
 double scvheosCsofRhoT(SCVHEOSMAT *Mat, double rho, double T);

@@ -18,6 +18,7 @@
 #include <gsl/gsl_errno.h>
 #include <gsl/gsl_math.h>
 #include <gsl/gsl_interp2d.h>
+#include <gsl/gsl_roots.h>
 #include "scvheos.h"
 
 /*
@@ -479,6 +480,81 @@ double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
 }
 
 /*
+ * Calculate the entropy logT(logrho, logu).
+ */
+double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
+    /* GSL root finder */
+    gsl_root_fsolver *Solver;
+    const gsl_root_fsolver_type *SolverType;
+    gsl_function F;
+    struct LogUofLogRhoLogT_GSL_Params Params;
+    const double err_abs = 0.0;
+    const double err_rel = 1e-10;
+    int status;
+    int max_iter = 1000;
+    double logT_min, logT_max;
+    double logT = 0.0;
+
+    /* Initialize the parameters. */
+    Params.Mat = Mat;
+    Params.logrho = logrho;
+    Params.logu = logu;
+
+    /* Initialize the function used for root finding. */
+    F.function = &LogUofLogRhoLogT_GSL_rootfinder;
+    F.params = &Params;
+
+    /* Initialize the root finder. */
+    SolverType = gsl_root_fsolver_brent;
+    SolverType = gsl_root_fsolver_bisection;
+    Solver = gsl_root_fsolver_alloc(SolverType);
+    assert(Solver != NULL);
+
+    /* Set minimum and maximum temperature. */ 
+    logT_min = Mat->LogTMin;
+    logT_max = Mat->LogTMax;
+
+    /* Check if logu < logu(logrho, logT_min) or logu > logu(logrho, logT_max) and set a minimum or maximum value. */
+    if (logu < scvheosLogUofLogRhoLogT(Mat, logrho, logT_min)) return logT_min;
+    if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, logT_max)) return logT_max;
+
+    /* Make sure the root is bracketed.*/
+    if (LogUofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogUofLogRhoLogT_GSL_rootfinder(logT_max, &Params) > 0.0) {
+        fprintf(stderr, "Could not bracket root.\n");
+        assert(0);
+    }
+
+    gsl_root_fsolver_set(Solver, &F, logT_min, logT_max);
+
+    for (int i=0; i<max_iter; i++) {
+        /* Do one iteration of the root solver. */
+        status = gsl_root_fsolver_iterate(Solver);
+
+        /* Estimate of the root. */
+        logT = gsl_root_fsolver_root(Solver);
+
+        /* Current interval that brackets the root. */
+        logT_min = gsl_root_fsolver_x_lower(Solver);
+        logT_max = gsl_root_fsolver_x_upper(Solver);
+
+        /* Test for convergence. */
+        status = gsl_root_test_interval(logT_min, logT_max, err_abs, err_rel);
+
+#if 0
+        if (status == GSL_SUCCESS)
+            fprintf(stderr, "Converged: x= %g\n", x);
+#endif
+        if (status != GSL_CONTINUE) break;
+    }
+
+    if (status != GSL_SUCCESS) logT = -1.0;
+
+    gsl_root_fsolver_free(Solver);
+
+    return logT;
+}
+
+/*
  * Calculate the derivative dlogP/dlogrho(logrho, logT).
  */
 double scvheosdLogPdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
@@ -816,6 +892,23 @@ int scvheosCheckBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     }
 
     return TRUE;
+}
+
+/* Functions required by the GSL root finder. */
+double LogUofLogRhoLogT_GSL_rootfinder(double logT, void *params) {
+    SCVHEOSMAT *Mat;
+    double logrho;
+    double logu;
+
+    struct LogUofLogRhoLogT_GSL_Params *p;
+
+    p = (struct LogUofLogRhoLogT_GSL_Params *) params;
+
+    Mat = p->Mat;
+    logrho = p->logrho;
+    logu = p->logu;
+
+    return (scvheosLogUofLogRhoLogT(Mat, logrho, logT)-logu);
 }
 
 #if 0
