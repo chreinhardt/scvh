@@ -4,11 +4,9 @@
  * This file proves an interface for the SCvH equation of state (Saumon et al. 1995) for Hydrogen
  * and Helium that was extended to lower temperatures by Vazan et al. (2013).
  *
- * Parts of the code are from Thomas Meier's ANEOS library (www.github.com...).
- *
  * Author:   Christian Reinhardt
  * Created:  02.04.2020
- * Modified: 08.08.2022
+ * Modified: 12.08.2022
  */
 #include <stdlib.h>
 #include <math.h>
