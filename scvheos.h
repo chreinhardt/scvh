@@ -100,13 +100,11 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile, int nRho, int nT, int nSki
 
 /* Calculate EOS values. */
 double scvheosLogPofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
-double scvheosPofRhoT(SCVHEOSMAT *Mat, double rho, double T);
-//double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u);
-
 double scvheosLogUofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
-double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T);
-
 double scvheosLogSofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
+
+double scvheosPofRhoT(SCVHEOSMAT *Mat, double rho, double T);
+double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 
 double scvheosdLogPdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);

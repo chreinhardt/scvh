@@ -368,45 +368,6 @@ double scvheosLogPofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
 }
 
 /*
- * Calculate the pressure P(rho, T).
- */
-double scvheosPofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
-    double logrho;
-    double logT;
-    double P;
-
-    logrho = log10(rho);
-    logT = log10(T);
-
-    /* Interpolate in the table. */
-    P = pow(Mat->dLogBase, scvheosLogPofLogRhoLogT(Mat, logrho, logT));
-
-    return P;
-}
-
-#if 0
-/*
- * Calculate the pressure P(rho, u).
- */
-double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
-    double T;
-    double logP;
-    double P;
-
-    T = scvheosTofRhoU(Mat, rho, u);
-    logP = interpolateValueBilinear(rho, T, Mat->nT, Mat->nRho, Mat->rhoAxis, Mat->TAxis, Mat->pArray);
-
-    P = pow(Mat->dLogBase, logP);
-
-    if (P < 0.0) {
-        fprintf(stderr, "scvheosPofRhoU: Negative pressure for rho=%15.7E T=%15.7E (P=%15.7E)\n", rho, T, P);
-    }
-
-    return P;
-}
-#endif
-
-/*
  * Calculate logU(logrho, logT).
  */
 double scvheosLogUofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
@@ -427,22 +388,6 @@ double scvheosLogUofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
 }
 
 /*
- * Calculate the internal energy u(rho, T).
- */
-double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
-    double logrho;
-    double logT;
-    double u;
-
-    logrho = log10(rho);
-    logT = log10(T);
-    
-    u = pow(Mat->dLogBase, scvheosLogUofLogRhoLogT(Mat, logrho, logT));
-
-    return u;
-}
-
-/*
  * Calculate logs(logrho, logT).
  */
 double scvheosLogSofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
@@ -460,6 +405,39 @@ double scvheosLogSofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     }
     
     return logs;
+}
+
+/*
+ * Calculate the pressure P(rho, T).
+ */
+double scvheosPofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
+    double logrho;
+    double logT;
+    double P;
+
+    logrho = log10(rho);
+    logT = log10(T);
+
+    /* Interpolate in the table. */
+    P = pow(Mat->dLogBase, scvheosLogPofLogRhoLogT(Mat, logrho, logT));
+
+    return P;
+}
+
+/*
+ * Calculate the internal energy u(rho, T).
+ */
+double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
+    double logrho;
+    double logT;
+    double u;
+
+    logrho = log10(rho);
+    logT = log10(T);
+
+    u = pow(Mat->dLogBase, scvheosLogUofLogRhoLogT(Mat, logrho, logT));
+
+    return u;
 }
 
 /*
