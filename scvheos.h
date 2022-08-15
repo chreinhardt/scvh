@@ -109,6 +109,7 @@ double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 
 double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u);
 
+/* Calculate derivatives. */
 double scvheosdLogPdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 double scvheosdLogPdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 
@@ -119,7 +120,9 @@ double scvheosdLogSdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double lo
 double scvheosdLogSdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 
 double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu);
+double scvheosTofRhoU(SCVHEOSMAT *Mat, double rho, double u);
 
+/* Use df/dx = f/x*ln(f)/ln(x). */
 double scvheosdPdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosdPdTofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 

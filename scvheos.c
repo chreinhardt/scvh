@@ -161,13 +161,12 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     gsl_interp2d_init(Mat->InterpLogU, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogUArray, Mat->nT, Mat->nRho);
     gsl_interp2d_init(Mat->InterpLogS, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogSArray, Mat->nT, Mat->nRho);
 
-#if 0
     /* The sound speed can only be calculated after the interpolation in P and u is initialized. */
     if (scvheosGenerateSoundSpeedTable(Mat) != SCVHEOS_SUCCESS) {
         fprintf(stderr, "scvheosInitMaterial: Could not generate table for sound speed.\n");
         exit(1);
     }
-#endif
+
     gsl_interp2d_init(Mat->InterpLogCs, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogCArray, Mat->nT, Mat->nRho);
 
     return Mat;
@@ -281,7 +280,6 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT, int nSk
     return SCVHEOS_SUCCESS;
 }
 
-#if 0
 /*
  * Generate an array that contains the sound speed at each EOS table data point.
  * 
@@ -297,12 +295,12 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT, int nSk
  * numerically.
  */
 int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
-    double P;
+    double rho;
+    double T;
     double dPdrho;
     double dPdT;
     double cv;
     double cs2;
-    int i, j;
 
     if (Mat == NULL)
         return SCVHEOS_FAIL;
@@ -313,34 +311,40 @@ int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
     if (Mat->dLogCArray != NULL)
         return SCVHEOS_FAIL;
 
-    Mat->dLogArray = (double **) calloc(Mat->nT, sizeof(double*));
+    /* The GSL interpolation functions require the tables are 1D arrays. */
+    Mat->dLogCArray = (double *) calloc(Mat->nT*Mat->nRho, sizeof(double));
 
-    if (Mat->dLogArray == NULL)
+    if (Mat->dLogCArray == NULL)
         return SCVHEOS_FAIL;
 
-    /* nRho and nT are set in scvheosReadTable(). */
-    for (i=0; i<Mat->nT; i++) {
-        Mat->dLogCArray[i] = (double *) calloc(Mat->nRho, sizeof(double));
-        if (Mat->dLogArray[i] == NULL)
-            return SCVHEOS_FAIL;
+    for (int i=0; i<Mat->nT; i++) {
+        for (int j=0; j<Mat->nRho; j++) {
+            rho = pow(Mat->dLogBase, Mat->dLogRhoAxis[j]);
+            T = pow(Mat->dLogBase, Mat->dLogTAxis[i]);
 
-    }
+            dPdrho = scvheosdPdRhoofRhoT(Mat, rho, T);
+            dPdT = scvheosdPdTofRhoT(Mat, rho, T);
+            cv = scvheosdUdTofRhoT(Mat, rho, T);
 
-    for (i=0; i<Mat->nT; i++) {
-        for (j=0; j<Mat->nRho; j++) {
-            P = scvheosPofRhoT(Mat, Mat->dLogRhoAxis[j], Mat->dLogTAxis[j]);
-            dPdrho = scvheosdPdrhoofRhoT(Mat, Mat->dLogRhoAxis[j], Mat->dLogTAxis[j]);
-            dPdT = scvheosdPdTofRhoT(Mat, Mat->dLogRhoAxis[j], Mat->dLogTAxis[j]);
-            cv = scvheosdUdrhoofRhoT(Mat, Mat->dLogRhoAxis[j], Mat->dLogTAxis[j]);
+            /* Use log(rho^2) = 2*log(rho). */
+            cs2 = dPdrho + T/(rho*rho*cv)*dPdT*dPdT;
 
-            cs2 = dPdrho + Mat->dLogTAxis[i]/(Mat->rhoAxis[j]*Mat->rhoAxis[j]*cv)*dPdT;
+            assert(!isinf(cs2));
 
             assert(cs2 > 0.0);
-            Mat->cArray[i][j] = sqrt(cs2);
+
+            Mat->dLogCArray[j*Mat->nT+i] = log10(sqrt(cs2));
+
+            if (Mat->dLogCArray[j*Mat->nT+i] > 0.0) {
+            } else {
+                assert(Mat->dLogCArray[j*Mat->nT+i] > 0.0);
+            }
         }
     }
+
+    return SCVHEOS_SUCCESS;
 }
-#endif
+
 // Functions that have to be implemented or added
 // We also need derivatives to calculate the sound speed (maybe do this once and make a table)?
 
@@ -549,6 +553,22 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
     gsl_root_fsolver_free(Solver);
 
     return logT;
+}
+
+/*
+ * Calculate the temperature T(rho, u).
+ */
+double scvheosTofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
+    double logrho;
+    double logu;
+    double T;
+
+    logrho = log10(rho);
+    logu = log10(u);
+
+    T = pow(Mat->dLogBase, scvheosLogTofLogRhoLogU(Mat, logrho, logu));
+
+    return T;
 }
 
 /*
@@ -798,51 +818,77 @@ double scvheosdLogSdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT
 }
 
 /*
- * Calculate the derivative dPdRho(rho, T).
+ * Calculate the derivative dP/drho(rho, T).
  */
 double scvheosdPdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
-    /* Finite difference. */
-    double h = 1e-5*rho;
-    double dPdRho;
+    double logrho;
+    double logT;
+    double P;
+    double dLogPdLogRho;
+    
+    logrho = log10(rho);
+    logT = log10(T);
 
-    dPdRho = (scvheosPofRhoT(Mat, rho+h, T) - scvheosPofRhoT(Mat, rho-h, T))/(2.0*h);
-    return dPdRho;
+    // CR: Here it is probably a bit more efficient if we calculate P=10**log(P)
+    P = scvheosPofRhoT(Mat, rho, T);
+    dLogPdLogRho = scvheosdLogPdLogRhoofLogRhoLogT(Mat, logrho, logT);
+    
+    /* dP/dx = P/x*dln(P)/dln(rho). */
+    return P/rho*dLogPdLogRho;
 }
 
 /*
- * Calculate the derivative dPdT(rho, T).
+ * Calculate the derivative dP/dT(rho, T).
  */
 double scvheosdPdTofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
-    /* Finite difference. */
-    double h = 1e-5*T;
-    double dPdT;
+    double logrho;
+    double logT;
+    double P;
+    double dLogPdLogT;
+    
+    logrho = log10(rho);
+    logT = log10(T);
 
-    dPdT = (scvheosPofRhoT(Mat, rho, T+h) - scvheosPofRhoT(Mat, rho, T-h))/(2.0*h);
-    return dPdT;
+    P = scvheosPofRhoT(Mat, rho, T);
+    dLogPdLogT = scvheosdLogPdLogTofLogRhoLogT(Mat, logrho, logT);
+    
+    return P/T*dLogPdLogT;
 }
 
 /*
- * Calculate the derivative dUdRho(rho, T).
+ * Calculate the derivative du/drho(rho, T).
  */
 double scvheosdUdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
-    /* Finite difference. */
-    double h = 1e-5*rho;
-    double dUdRho;
+    double logrho;
+    double logT;
+    double u;
+    double dLogUdLogRho;
+    
+    logrho = log10(rho);
+    logT = log10(T);
 
-    dUdRho = (scvheosUofRhoT(Mat, rho+h, T)-scvheosUofRhoT(Mat, rho-h, T))/(2.0*h);
-    return dUdRho;
+    u = scvheosUofRhoT(Mat, rho, T);
+    dLogUdLogRho = scvheosdLogUdLogRhoofLogRhoLogT(Mat, logrho, logT);
+    
+    return u/rho*dLogUdLogRho;
 }
 
 /*
- * Calculate the derivative dUdT(rho, T).
+ * Calculate the derivative du/dT(rho, T).
  */
 double scvheosdUdTofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
-    /* Finite difference. */
-    double h = 1e-5*T;
-    double dUdT;
+    double logrho;
+    double logT;
+    double u;
+    double dLogUdLogT;
+    
+    logrho = log10(rho);
+    logT = log10(T);
 
-    dUdT = (scvheosUofRhoT(Mat, rho, T+h)-scvheosUofRhoT(Mat, rho, T-h))/(2.0*h);
-    return dUdT;
+    u = scvheosUofRhoT(Mat, rho, T);
+    dLogUdLogT = scvheosdLogUdLogTofLogRhoLogT(Mat, logrho, logT);
+    
+    return u/T*dLogUdLogT;
 }
 
 /*
