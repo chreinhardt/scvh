@@ -1,10 +1,10 @@
 /*
  * A simple program to test the SCVH EOS library.
  *
- * Test if the inverstion of T(rho, u) is correct.
+ * Test the inversion routines T(rho, u) and T(rho, s).
  *
  * Author: Christian Reinhardt
- * Created: 12.08.2022
+ * Created: 16.08.2022
  * Modified:
  */
 #include <math.h>
@@ -71,7 +71,7 @@ int main(int argc, char **argv) {
 #endif
 
     /* Write both axis to a file. */
-    fp = fopen("testscvheostempinv_rhoaxis.txt", "w");
+    fp = fopen("testscvheosinv_rhoaxis.txt", "w");
 
     for (int i=0; i<nRho; i++) {
         fprintf(fp, "%15.7E\n", logrhoAxis[i]);
@@ -79,7 +79,7 @@ int main(int argc, char **argv) {
 
     fclose(fp);
 
-    fp = fopen("testscvheostempinv_taxis.txt", "w");
+    fp = fopen("testscvheosinv_taxis.txt", "w");
 
     for (int i=0; i<nT; i++) {
         fprintf(fp, "%15.7E\n", logTAxis[i]);
@@ -89,7 +89,7 @@ int main(int argc, char **argv) {
 
     /* Calculate the relative error on logT(logrho, logu). */
     fprintf(stderr, "Calculate logT(logrho, logu) on a logrho x logT grid.\n");
-    fp = fopen("testscvheostempinv.txt", "w");
+    fp = fopen("testscvheosinv_logtoflogrhologu.txt", "w");
 
     fprintf(fp, "# logT(logrho, logu) (nRho = %i nT= %i)\n", nRho, nT);
     fprintf(fp, "# Interpolator: %s (GSL)\n", gsl_interp2d_name(Mat->InterpLogU));
@@ -98,6 +98,24 @@ int main(int argc, char **argv) {
         for (int j=0; j<nRho; j++) {
             double logu = scvheosLogUofLogRhoLogT(Mat, logrhoAxis[j], logTAxis[i]);
             double logT = scvheosLogTofLogRhoLogU(Mat, logrhoAxis[j], logu);
+            fprintf(fp, "%15.7E", fabs((logT-logTAxis[i])/logT));
+        } 
+        fprintf(fp, "\n");
+    }
+
+    fclose(fp);
+
+    /* Calculate the relative error on logT(logrho, logs). */
+    fprintf(stderr, "Calculate logT(logrho, logs) on a logrho x logT grid.\n");
+    fp = fopen("testscvheosinv_logtoflogrhologs.txt", "w");
+
+    fprintf(fp, "# logT(logrho, logs) (nRho = %i nT= %i)\n", nRho, nT);
+    fprintf(fp, "# Interpolator: %s (GSL)\n", gsl_interp2d_name(Mat->InterpLogS));
+
+    for (int i=0; i<nT; i++) {
+        for (int j=0; j<nRho; j++) {
+            double logs = scvheosLogSofLogRhoLogT(Mat, logrhoAxis[j], logTAxis[i]);
+            double logT = scvheosLogTofLogRhoLogS(Mat, logrhoAxis[j], logs);
             fprintf(fp, "%15.7E", fabs((logT-logTAxis[i])/logT));
         } 
         fprintf(fp, "\n");
