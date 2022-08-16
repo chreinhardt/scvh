@@ -538,7 +538,7 @@ double scvheosCsofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
 }
 
 /*
- * Calculate the entropy logT(logrho, logu).
+ * Calculate the temperature logT(logrho, logu).
  */
 double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
     /* GSL root finder */
