@@ -97,6 +97,7 @@ struct LogUofLogRhoLogT_GSL_Params {
 SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit);
 int scvheosFinalizeMaterial(SCVHEOSMAT *Mat);
 int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile, int nRho, int nT, int nSkip);
+int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat);
 
 /* Calculate EOS values. */
 double scvheosLogPofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
