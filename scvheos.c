@@ -410,6 +410,27 @@ double scvheosLogSofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
 }
 
 /*
+ * Calculate logcs(logrho, logT).
+ */
+double scvheosLogCsofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
+    double logcs;
+
+    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
+	    fprintf(stderr, "scvheosLogCsofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
+        exit(1);
+    }
+
+    if (gsl_interp2d_eval_e_extrap(Mat->InterpLogCs, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogCArray, logT, logrho,
+			    Mat->xAccP, Mat->yAccP, &logcs) != GSL_SUCCESS) {
+	    fprintf(stderr, "scvheosLogCsofLogRhoLogT: Interpolation failed (logrho= %15.7E logT= %15.7E).\n", logrho, logT);
+	    exit(1);
+    }
+ 
+    return logcs;
+}
+
+
+/*
  * Calculate the pressure P(rho, T).
  */
 double scvheosPofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
@@ -460,6 +481,22 @@ double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
 }
 
 /*
+ * Calculate the sound speed cs(rho, T).
+ */
+double scvheosCsofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
+    double logrho;
+    double logT;
+    double Cs;
+
+    logrho = log10(rho);
+    logT = log10(T);
+
+    Cs = pow(Mat->dLogBase, scvheosLogCsofLogRhoLogT(Mat, logrho, logT));
+
+    return Cs;
+}
+
+/*
  * Calculate the pressure P(rho, u).
  */
 double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
@@ -478,6 +515,26 @@ double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
     P = pow(Mat->dLogBase, scvheosLogPofLogRhoLogT(Mat, logrho, logT));
 
     return P;
+}
+
+/*
+ * Calculate the sound speed cs(rho, u).
+ */
+double scvheosCsofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
+    double logrho;
+    double logu;
+    double logT;
+    double Cs;
+
+    logrho = log10(rho);
+    logu = log10(u);
+
+    /* Calculate logT. */
+    logT = scvheosLogTofLogRhoLogU(Mat, logrho, logu);
+
+    Cs = pow(Mat->dLogBase, scvheosLogCsofLogRhoLogT(Mat, logrho, logT));
+
+    return Cs;
 }
 
 /*

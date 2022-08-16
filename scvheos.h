@@ -102,12 +102,15 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile, int nRho, int nT, int nSki
 double scvheosLogPofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 double scvheosLogUofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 double scvheosLogSofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
+double scvheosLogCsofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 
 double scvheosPofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T);
+double scvheosCsofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 
 double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u);
+double scvheosCsofRhoU(SCVHEOSMAT *Mat, double rho, double u);
 
 /* Calculate derivatives. */
 double scvheosdLogPdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
