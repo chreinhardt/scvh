@@ -972,6 +972,52 @@ double scvheosdSdTofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
 }
 
 /*
+ * Calculate dPdrho(rho, u).
+ */
+double scvheosdPdRhoofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
+    double h = 1e-6*rho;
+    double dPdRho;
+    double UMinRight;
+    double UMinLeft;
+    double TMin;
+
+    /* Limit of the EOS table defines the minimum temperature. */
+    TMin = pow(Mat->dLogBase, Mat->dLogTAxis[0]);
+
+    /* Check if (rho-h, u) and (rho+h, u) are inside of the EOS table. */
+    UMinLeft = scvheosUofRhoT(Mat, rho-h, TMin);
+    UMinRight = scvheosUofRhoT(Mat, rho+h, TMin);
+
+    if ((UMinLeft <= u) && (UMinRight <= u)) {
+        /* Both left and right value are smaller than u. */
+        dPdRho = (scvheosPofRhoU(Mat, rho+h, u) - scvheosPofRhoU(Mat, rho-h, u))/(2.0*h);
+    } else if (UMinLeft <= u) {
+        /* Backward finite difference. */
+        dPdRho = (scvheosPofRhoU(Mat, rho, u) - scvheosPofRhoU(Mat, rho-h, u))/h;
+    } else if (UMinRight <= u) {
+        /* Forward finite difference. */
+        dPdRho = (scvheosPofRhoU(Mat, rho+h, u) - scvheosPofRhoU(Mat, rho, u))/h;
+    } else {
+        /* Both points are problematic so h is reduced. */
+        h *= 1e-4;
+        dPdRho = (scvheosPofRhoU(Mat, rho+h, u) - scvheosPofRhoU(Mat, rho-h, u))/(2.0*h);
+    }
+    return dPdRho;
+}
+
+/*
+ * Calculate dPdu(rho, u).
+ */
+double scvheosdPdUofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
+    double h = fabs(1e-5*u);
+    double dPdU;
+
+    dPdU = (scvheosPofRhoU(Mat, rho, u+h) - scvheosPofRhoU(Mat, rho, u))/h;
+
+    return dPdU;
+}
+
+/*
  * Check if (logrho, logT) is inside of the eos table.
  */
 int scvheosCheckTableBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {

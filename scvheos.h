@@ -135,6 +135,8 @@ double scvheosdUdTofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosdSdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosdSdTofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 
+double scvheosdPdRhoofRhoU(SCVHEOSMAT *Mat, double rho, double u);
+double scvheosdPdUofRhoU(SCVHEOSMAT *Mat, double rho, double u);
 
 int scvheosCheckTableBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 int scvheosCheckBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
