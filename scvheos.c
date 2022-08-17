@@ -56,6 +56,9 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     Mat->nT = 0;
     Mat->dLogBase = 10.0;
 
+    /* Set the reference density for ballic. */ 
+    Mat->rho0 = 1e-3; 
+
     /*
      * Load the EOS table.
      */
@@ -69,6 +72,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             nRho = 201;
             nT = 100;
             nSkip = 1;
+            strcpy(Mat->MatString, "Material not implemented yet.");
             break;
         case SCVHEOS_HE:
             /*
@@ -78,6 +82,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             nRho = 201;
             nT = 100;
             nSkip = 1;
+            strcpy(Mat->MatString, "Material not implemented yet.");
             break;
         case SCVHEOS_HHE:
             /*
@@ -87,6 +92,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             nRho = 201;
             nT = 100;
             nSkip = 1;
+            strcpy(Mat->MatString, "Material not implemented yet.");
             break;
         case SCVHEOS_HHE_LOWRHOT:
             /*
@@ -96,6 +102,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             nRho = 80;
             nT = 49;
             nSkip = 2;
+            strcpy(Mat->MatString, "SCvH EOS H-He Y=0.275 (Saumon et al. 1995, Vazan et al. 2013).");
             break;
         default:
             /* Unknown material */
