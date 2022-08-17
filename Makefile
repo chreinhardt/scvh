@@ -50,6 +50,12 @@ testscvheoscv: testscvheoscv.o $(OBJ)
 testscvheosderivs: testscvheosderivs.o $(OBJ)
 	cc -o testscvheosderivs testscvheosderivs.o $(OBJ) $(LIBS)
 
+testscvheosinv: testscvheosinv.o $(OBJ)
+	cc -o testscvheosinv testscvheosinv.o $(OBJ) $(LIBS)
+
+testscvheossoundspeed: testscvheossoundspeed.o $(OBJ)
+	cc -o testscvheossoundspeed testscvheossoundspeed.o $(OBJ) $(LIBS)
+
 scvheoscalcentropyonreos3grid: scvheoscalcentropyonreos3grid.o $(OBJ)
 	cc -o scvheoscalcentropyonreos3grid scvheoscalcentropyonreos3grid.o $(OBJ) $(LIBS)
 
