@@ -613,6 +613,81 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
 }
 
 /*
+ * Calculate the temperature logT(logrho, logs).
+ */
+double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
+    /* GSL root finder */
+    gsl_root_fsolver *Solver;
+    const gsl_root_fsolver_type *SolverType;
+    gsl_function F;
+    struct LogSofLogRhoLogT_GSL_Params Params;
+    const double err_abs = 0.0;
+    const double err_rel = 1e-10;
+    int status;
+    int max_iter = 1000;
+    double logT_min, logT_max;
+    double logT = 0.0;
+
+    /* Initialize the parameters. */
+    Params.Mat = Mat;
+    Params.logrho = logrho;
+    Params.logs = logs;
+
+    /* Initialize the function used for root finding. */
+    F.function = &LogSofLogRhoLogT_GSL_rootfinder;
+    F.params = &Params;
+
+    /* Initialize the root finder. */
+    SolverType = gsl_root_fsolver_brent;
+    SolverType = gsl_root_fsolver_bisection;
+    Solver = gsl_root_fsolver_alloc(SolverType);
+    assert(Solver != NULL);
+
+    /* Set minimum and maximum temperature. */ 
+    logT_min = Mat->LogTMin;
+    logT_max = Mat->LogTMax;
+
+    /* Check if logs < logs(logrho, logT_min) or logs > logs(logrho, logT_max) and set a minimum or maximum value. */
+    if (logs < scvheosLogSofLogRhoLogT(Mat, logrho, logT_min)) return logT_min;
+    if (logs > scvheosLogSofLogRhoLogT(Mat, logrho, logT_max)) return logT_max;
+
+    /* Make sure the root is bracketed.*/
+    if (LogSofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogSofLogRhoLogT_GSL_rootfinder(logT_max, &Params) > 0.0) {
+        fprintf(stderr, "Could not bracket root.\n");
+        assert(0);
+    }
+
+    gsl_root_fsolver_set(Solver, &F, logT_min, logT_max);
+
+    for (int i=0; i<max_iter; i++) {
+        /* Do one iteration of the root solver. */
+        status = gsl_root_fsolver_iterate(Solver);
+
+        /* Estimate of the root. */
+        logT = gsl_root_fsolver_root(Solver);
+
+        /* Current interval that brackets the root. */
+        logT_min = gsl_root_fsolver_x_lower(Solver);
+        logT_max = gsl_root_fsolver_x_upper(Solver);
+
+        /* Test for convergence. */
+        status = gsl_root_test_interval(logT_min, logT_max, err_abs, err_rel);
+
+#if 0
+        if (status == GSL_SUCCESS)
+            fprintf(stderr, "Converged: x= %g\n", x);
+#endif
+        if (status != GSL_CONTINUE) break;
+    }
+
+    if (status != GSL_SUCCESS) logT = -1.0;
+
+    gsl_root_fsolver_free(Solver);
+
+    return logT;
+}
+
+/*
  * Calculate the temperature T(rho, u).
  */
 double scvheosTofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
@@ -624,6 +699,22 @@ double scvheosTofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
     logu = log10(u);
 
     T = pow(Mat->dLogBase, scvheosLogTofLogRhoLogU(Mat, logrho, logu));
+
+    return T;
+}
+
+/*
+ * Calculate the temperature T(rho, s).
+ */
+double scvheosTofRhoS(SCVHEOSMAT *Mat, double rho, double s) {
+    double logrho;
+    double logs;
+    double T;
+
+    logrho = log10(rho);
+    logs = log10(s);
+
+    T = pow(Mat->dLogBase, scvheosLogTofLogRhoLogS(Mat, logrho, logs));
 
     return T;
 }
@@ -1018,6 +1109,25 @@ double scvheosdPdUofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
 }
 
 /*
+ * Calculate u2 so that (rho1, u1) and (rho2, u2) are on the same isentrope.
+ */
+double scvheosIsentropicU(SCVHEOSMAT *Mat, double rho1, double u1, double rho2) {
+    double T1;
+    double T2;
+    double S;
+    double u2;
+
+    T1 = scvheosTofRhoU(Mat, rho1, u1);
+    S = scvheosSofRhoT(Mat, rho1, T1);
+
+    T2 = scvheosTofRhoS(Mat, rho2, S);
+   
+    u2 = scvheosUofRhoT(Mat, rho2, T2);
+
+    return u2;
+}
+
+/*
  * Check if (logrho, logT) is inside of the eos table.
  */
 int scvheosCheckTableBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
@@ -1055,5 +1165,21 @@ double LogUofLogRhoLogT_GSL_rootfinder(double logT, void *params) {
     logu = p->logu;
 
     return (scvheosLogUofLogRhoLogT(Mat, logrho, logT)-logu);
+}
+
+double LogSofLogRhoLogT_GSL_rootfinder(double logT, void *params) {
+    SCVHEOSMAT *Mat;
+    double logrho;
+    double logs;
+
+    struct LogSofLogRhoLogT_GSL_Params *p;
+
+    p = (struct LogSofLogRhoLogT_GSL_Params *) params;
+
+    Mat = p->Mat;
+    logrho = p->logrho;
+    logs = p->logs;
+
+    return (scvheosLogSofLogRhoLogT(Mat, logrho, logT)-logs);
 }
 
