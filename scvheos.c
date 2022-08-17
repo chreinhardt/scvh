@@ -119,11 +119,16 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
         exit(1);
     }
 
+    /* Define limits of the table (or extrapolation). */
+    Mat->LogRhoMin = -15.0;
+    Mat->LogRhoMax = 3.0;
+    Mat->LogTMin = 1.0;
+    Mat->LogTMax = 1e8;
+
     /*
      * Convert from cgs to code units.
      */
-    if ((dKpcUnit > 0.0) && (dMsolUnit > 0.0))
-    {
+    if ((Mat->dKpcUnit > 0.0) && (Mat->dMsolUnit > 0.0)) {
         Mat->dGasConst = Mat->dKpcUnit*KPCCM*KBOLTZ
             /MHYDR/GCGS/Mat->dMsolUnit/MSOLG;
         /* code energy per unit mass --> erg per g */
@@ -132,13 +137,30 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
         Mat->dGmPerCcUnit = (Mat->dMsolUnit*MSOLG)/pow(Mat->dKpcUnit*KPCCM,3.0);
         /* code time --> seconds */
         Mat->dSecUnit = sqrt(1/(Mat->dGmPerCcUnit*GCGS));
-    }
 
-    /* Define limits of the table (or extrapolation). */
-    Mat->LogRhoMin = -15.0;
-    Mat->LogRhoMax = 3.0;
-    Mat->LogTMin = 1.0;
-    Mat->LogTMax = 1e8;
+        for (int i=0; i<Mat->nRho; i++) {
+            Mat->dLogRhoAxis[i] -= log10(Mat->dGmPerCcUnit);
+        }
+        
+        for (int i=0; i<Mat->nT; i++) {
+            for (int j=0; j<Mat->nRho; j++) {
+                Mat->dLogPArray[j*Mat->nT+i] -= log10(Mat->dErgPerGmUnit*Mat->dGmPerCcUnit);
+                Mat->dLogUArray[j*Mat->nT+i] -= log10(Mat->dErgPerGmUnit);
+                Mat->dLogSArray[j*Mat->nT+i] -= log10(Mat->dErgPerGmUnit);
+            }
+        }
+ 
+        /* Convert table limits and reference density. */
+        Mat->LogRhoMin -= log10(Mat->dGmPerCcUnit);
+        Mat->LogRhoMax -= log10(Mat->dGmPerCcUnit);
+        Mat->rho0 /= Mat->dGmPerCcUnit;
+    } else {
+        /* Prevent problems if dKpcUnit or dMsolUnit are not set. */
+        Mat->dGasConst = 0.0;
+        Mat->dErgPerGmUnit = 1.0;
+        Mat->dGmPerCcUnit = 1.0;
+        Mat->dSecUnit = 1.0;
+    }
 
     /*
      * Initialize the GSL interpolator.
@@ -337,15 +359,9 @@ int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
             cs2 = dPdrho + T/(rho*rho*cv)*dPdT*dPdT;
 
             assert(!isinf(cs2));
-
             assert(cs2 > 0.0);
 
             Mat->dLogCArray[j*Mat->nT+i] = log10(sqrt(cs2));
-
-            if (Mat->dLogCArray[j*Mat->nT+i] > 0.0) {
-            } else {
-                assert(Mat->dLogCArray[j*Mat->nT+i] > 0.0);
-            }
         }
     }
 
@@ -1141,7 +1157,7 @@ int scvheosPrintMat(SCVHEOSMAT *Mat, FILE *fp) {
 	fprintf(fp,"# Reference density rho0: %g\n", Mat->rho0);
 	fprintf(fp,"# Table size: nRho = %d, nT = %d\n", Mat->nRho, Mat->nT);
     fprintf(fp,"# Table boundaries (cgs units):\n");
-    fprintf(fp,"# LogRhoMin=%15.7E LogRhoMax=%15.7E\n", Mat->dLogRhoAxis[0], Mat->dLogRhoAxis[Mat->nRho-1]);
+    fprintf(fp,"# LogRhoMin=%15.7E LogRhoMax=%15.7E\n", Mat->dLogRhoAxis[0]+log10(Mat->dGmPerCcUnit), Mat->dLogRhoAxis[Mat->nRho-1]+log10(Mat->dGmPerCcUnit));
     fprintf(fp,"# LogTMin=%15.7E LogTMax=%15.7E\n", Mat->dLogTAxis[0], Mat->dLogTAxis[Mat->nT-1]);
 
     return SCVHEOS_SUCCESS;
