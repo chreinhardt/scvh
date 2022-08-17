@@ -80,6 +80,9 @@ scvheoscalcentropy: scvheoscalcentropy.o $(OBJ)
 scvheoscalcintenergy: scvheoscalcintenergy.o $(OBJ)
 	cc -o scvheoscalcintenergy scvheoscalcintenergy.o $(OBJ) $(LIBS)
 
+scvheosprintmat: scvheosprintmat.o $(OBJ)
+	cc -o scvheosprintmat scvheosprintmat.o $(OBJ) $(LIBS)
+
 clean:
 	rm $(OBJ)
 
