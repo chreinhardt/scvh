@@ -155,14 +155,5 @@ int scvheosCheckBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 /* Functions required by the GSL root finder. */
 double LogUofLogRhoLogT_GSL_rootfinder(double logT, void *params);
 double LogSofLogRhoLogT_GSL_rootfinder(double logT, void *params);
-# if 0
-double scvheosCsofRhoT(SCVHEOSMAT *Mat, double rho, double T);
-double scvheosCsofRhoU(SCVHEOSMAT *Mat, double rho, double u);
-double scvheosTofRhoU(SCVHEOSMAT *Mat, double rho, double u);
-
-double scvheosdPdrhoofRhoT(SCVHEOSMAT *Mat, double rho, double T);
-double scvheosdPdTofRhoT(SCVHEOSMAT *Mat, double rho, double T);
-double scvheosdUdrhoofRhoT(SCVHEOSMAT *Mat, double rho, double T);
-#endif
 #endif
 
