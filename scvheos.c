@@ -1127,6 +1127,19 @@ double scvheosIsentropicU(SCVHEOSMAT *Mat, double rho1, double u1, double rho2) 
     return u2;
 }
 
+
+int scvheosPrintMat(SCVHEOSMAT *Mat, FILE *fp) {
+    if (!fp) return SCVHEOS_FAIL;
+	fprintf(fp,"# Material: %i (%s)\n", Mat->iMat, Mat->MatString);
+	fprintf(fp,"# Reference density rho0: %g\n", Mat->rho0);
+	fprintf(fp,"# Table size: nRho = %d, nT = %d\n", Mat->nRho, Mat->nT);
+    fprintf(fp,"# Table boundaries (cgs units):\n");
+    fprintf(fp,"# LogRhoMin=%15.7E LogRhoMax=%15.7E\n", Mat->dLogRhoAxis[0], Mat->dLogRhoAxis[Mat->nRho-1]);
+    fprintf(fp,"# LogTMin=%15.7E LogTMax=%15.7E\n", Mat->dLogTAxis[0], Mat->dLogTAxis[Mat->nT-1]);
+
+    return SCVHEOS_SUCCESS;
+}
+
 /*
  * Check if (logrho, logT) is inside of the eos table.
  */

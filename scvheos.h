@@ -42,6 +42,8 @@ typedef struct scvheosMat {
     int iMat;
     int nRho;
     int nT;
+    char MatString[256];
+    double rho0;
 
     /* Define limits of the table (or extrapolation). */
     double LogRhoMin;
@@ -148,6 +150,8 @@ double scvheosdPdRhoofRhoU(SCVHEOSMAT *Mat, double rho, double u);
 double scvheosdPdUofRhoU(SCVHEOSMAT *Mat, double rho, double u);
 
 double scvheosIsentropicU(SCVHEOSMAT *Mat, double rho1, double u1, double rho2);
+
+int scvheosPrintMat(SCVHEOSMAT *Mat, FILE *fp);
 
 int scvheosCheckTableBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 int scvheosCheckBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
