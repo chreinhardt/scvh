@@ -1273,6 +1273,21 @@ int scvheosCheckBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     return TRUE;
 }
 
+/*
+ * Check if a value (rho, u) is inside of the extrapolation limits.
+ */
+int scvheosIsInExtrapLimit(SCVHEOSMAT *Mat, double rho, double u) {
+    double logrho = log10(rho);
+    double logu = log10(u);
+
+    if (logrho < Mat->LogRhoMin) return SCVHEOS_OUTSIDE_RHOMIN;
+    if (logrho > Mat->LogRhoMax) return SCVHEOS_OUTSIDE_RHOMAX;
+    if (logu < scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMin)) return SCVHEOS_OUTSIDE_TMIN;
+    if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMax)) return SCVHEOS_OUTSIDE_TMAX;
+
+    return SCVHEOS_SUCCESS;
+}
+
 /* Functions required by the GSL root finder. */
 double LogUofLogRhoLogT_GSL_rootfinder(double logT, void *params) {
     SCVHEOSMAT *Mat;

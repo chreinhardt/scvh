@@ -33,6 +33,14 @@
 #define SCVHEOS_HHE_LOWRHOT 113
 
 /*
+ * Define error codes.
+ */
+#define SCVHEOS_OUTSIDE_RHOMIN -1
+#define SCVHEOS_OUTSIDE_RHOMAX -2
+#define SCVHEOS_OUTSIDE_TMIN   -3
+#define SCVHEOS_OUTSIDE_TMAX   -4
+
+/*
  * Define TRUE and FALSE.
  */
 #define FALSE 0
@@ -163,6 +171,7 @@ int scvheosPrintMat(SCVHEOSMAT *Mat, FILE *fp);
 
 int scvheosCheckTableBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 int scvheosCheckBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
+int scvheosIsInExtrapLimit(SCVHEOSMAT *Mat, double rho, double u);
 
 /* Functions required by the GSL root finder. */
 double LogUofLogRhoLogT_GSL_rootfinder(double logT, void *params);
