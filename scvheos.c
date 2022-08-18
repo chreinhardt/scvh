@@ -6,7 +6,7 @@
  *
  * Author:   Christian Reinhardt
  * Created:  02.04.2020
- * Modified: 12.08.2022
+ * Modified: 18.08.2022
  */
 #include <stdlib.h>
 #include <math.h>
@@ -711,6 +711,77 @@ double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
 }
 
 /*
+ * Calculate the density logrho(logP, logT).
+ */
+double scvheosLogRhoofLogPLogT(SCVHEOSMAT *Mat, double logP, double logT) {
+    /* GSL root finder */
+    gsl_root_fsolver *Solver;
+    const gsl_root_fsolver_type *SolverType;
+    gsl_function F;
+    struct LogPofLogRhoLogT_GSL_Params Params;
+    const double err_abs = 0.0;
+    const double err_rel = 1e-10;
+    int status;
+    int max_iter = 1000;
+    double logrho_min, logrho_max;
+    double logrho = 0.0;
+
+    /* Initialize the parameters. */
+    Params.Mat = Mat;
+    Params.logT = logT;
+    Params.logP = logP;
+
+    /* Initialize the function used for root finding. */
+    F.function = &LogPofLogRhoLogT_GSL_rootfinder;
+    F.params = &Params;
+
+    /* Initialize the root finder. */
+    SolverType = gsl_root_fsolver_brent;
+    SolverType = gsl_root_fsolver_bisection;
+    Solver = gsl_root_fsolver_alloc(SolverType);
+    assert(Solver != NULL);
+
+    /* Set minimum and maximum density. */ 
+    logrho_min = Mat->LogRhoMin;
+    logrho_max = Mat->LogRhoMax;
+
+    /* Make sure the root is bracketed.*/
+    if (LogPofLogRhoLogT_GSL_rootfinder(logrho_min, &Params)*LogPofLogRhoLogT_GSL_rootfinder(logrho_max, &Params) > 0.0) {
+        fprintf(stderr, "Could not bracket root.\n");
+        assert(0);
+    }
+
+    gsl_root_fsolver_set(Solver, &F, logrho_min, logrho_max);
+
+    for (int i=0; i<max_iter; i++) {
+        /* Do one iteration of the root solver. */
+        status = gsl_root_fsolver_iterate(Solver);
+
+        /* Estimate of the root. */
+        logrho = gsl_root_fsolver_root(Solver);
+
+        /* Current interval that brackets the root. */
+        logrho_min = gsl_root_fsolver_x_lower(Solver);
+        logrho_max = gsl_root_fsolver_x_upper(Solver);
+
+        /* Test for convergence. */
+        status = gsl_root_test_interval(logrho_min, logrho_max, err_abs, err_rel);
+
+#if 0
+        if (status == GSL_SUCCESS)
+            fprintf(stderr, "Converged: x= %g\n", x);
+#endif
+        if (status != GSL_CONTINUE) break;
+    }
+
+    if (status != GSL_SUCCESS) logrho = -1.0;
+
+    gsl_root_fsolver_free(Solver);
+
+    return logrho;
+}
+
+/*
  * Calculate the temperature T(rho, u).
  */
 double scvheosTofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
@@ -740,6 +811,22 @@ double scvheosTofRhoS(SCVHEOSMAT *Mat, double rho, double s) {
     T = pow(Mat->dLogBase, scvheosLogTofLogRhoLogS(Mat, logrho, logs));
 
     return T;
+}
+
+/*
+ * Calculate the density rho(P, T).
+ */
+double scvheosRhoofPT(SCVHEOSMAT *Mat, double P, double T) {
+    double logP;
+    double logT;
+    double rho;
+
+    logP = log10(P);
+    logT = log10(T);
+
+    rho = pow(Mat->dLogBase, scvheosLogRhoofLogPLogT(Mat, logP, logT));
+
+    return rho;
 }
 
 /*
@@ -1217,5 +1304,21 @@ double LogSofLogRhoLogT_GSL_rootfinder(double logT, void *params) {
     logs = p->logs;
 
     return (scvheosLogSofLogRhoLogT(Mat, logrho, logT)-logs);
+}
+
+double LogPofLogRhoLogT_GSL_rootfinder(double logrho, void *params) {
+    SCVHEOSMAT *Mat;
+    double logT;
+    double logP;
+
+    struct LogPofLogRhoLogT_GSL_Params *p;
+
+    p = (struct LogPofLogRhoLogT_GSL_Params *) params;
+
+    Mat = p->Mat;
+    logT = p->logT;
+    logP = p->logP;
+
+    return (scvheosLogPofLogRhoLogT(Mat, logrho, logT)-logP);
 }
 

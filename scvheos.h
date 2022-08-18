@@ -101,6 +101,12 @@ struct LogSofLogRhoLogT_GSL_Params {
     double logs;
 };
 
+struct LogPofLogRhoLogT_GSL_Params {
+    SCVHEOSMAT *Mat;
+    double logT;
+    double logP;
+};
+
 /* Functions to initialize and finalize materials. */
 SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit);
 int scvheosFinalizeMaterial(SCVHEOSMAT *Mat);
@@ -133,8 +139,10 @@ double scvheosdLogSdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT
 
 double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu);
 double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs);
+double scvheosLogRhoofLogPLogT(SCVHEOSMAT *Mat, double logP, double logT);
 
 double scvheosTofRhoU(SCVHEOSMAT *Mat, double rho, double u);
+double scvheosRhoofPT(SCVHEOSMAT *Mat, double P, double T);
 
 /* Use df/dx = f/x*ln(f)/ln(x). */
 double scvheosdPdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T);
@@ -159,5 +167,6 @@ int scvheosCheckBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 /* Functions required by the GSL root finder. */
 double LogUofLogRhoLogT_GSL_rootfinder(double logT, void *params);
 double LogSofLogRhoLogT_GSL_rootfinder(double logT, void *params);
+double LogPofLogRhoLogT_GSL_rootfinder(double logrho, void *params);
 #endif
 

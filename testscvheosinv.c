@@ -1,11 +1,11 @@
 /*
  * A simple program to test the SCVH EOS library.
  *
- * Test the inversion routines T(rho, u) and T(rho, s).
+ * Test the inversion routines T(rho, u), T(rho, s) and rho(P, T).
  *
  * Author: Christian Reinhardt
  * Created: 16.08.2022
- * Modified:
+ * Modified: 18.08.2022
  */
 #include <math.h>
 #include <stdio.h>
@@ -117,6 +117,24 @@ int main(int argc, char **argv) {
             double logs = scvheosLogSofLogRhoLogT(Mat, logrhoAxis[j], logTAxis[i]);
             double logT = scvheosLogTofLogRhoLogS(Mat, logrhoAxis[j], logs);
             fprintf(fp, "%15.7E", fabs((logT-logTAxis[i])/logT));
+        } 
+        fprintf(fp, "\n");
+    }
+
+    fclose(fp);
+
+    /* Calculate the relative error on logrho(logP, logT). */
+    fprintf(stderr, "Calculate logrho(logP, logT) on a logrho x logT grid.\n");
+    fp = fopen("testscvheosinv_logrhooflogplogt.txt", "w");
+
+    fprintf(fp, "# logrho(logP, logT) (nRho = %i nT= %i)\n", nRho, nT);
+    fprintf(fp, "# Interpolator: %s (GSL)\n", gsl_interp2d_name(Mat->InterpLogP));
+
+    for (int i=0; i<nT; i++) {
+        for (int j=0; j<nRho; j++) {
+            double logP = scvheosLogPofLogRhoLogT(Mat, logrhoAxis[j], logTAxis[i]);
+            double logrho = scvheosLogRhoofLogPLogT(Mat, logP, logTAxis[i]);
+            fprintf(fp, "%15.7E", fabs((logrho-logrhoAxis[j])/logrho));
         } 
         fprintf(fp, "\n");
     }
