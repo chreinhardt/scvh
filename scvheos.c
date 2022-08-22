@@ -120,9 +120,9 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     }
 
     /* Define limits of the table (or extrapolation). */
-    Mat->LogRhoMin = -15.0;
+    Mat->LogRhoMin = -25.0;
     Mat->LogRhoMax = 3.0;
-    Mat->LogTMin = 1.0;
+    Mat->LogTMin = 0.0;
     Mat->LogTMax = 1e8;
 
     /*
@@ -537,6 +537,8 @@ double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
     /* Interpolate in the table. */
     P = pow(Mat->dLogBase, scvheosLogPofLogRhoLogT(Mat, logrho, logT));
 
+    // CR
+    assert(P > 0.0);
     return P;
 }
 
@@ -596,8 +598,12 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
     logT_max = Mat->LogTMax;
 
     /* Check if logu < logu(logrho, logT_min) or logu > logu(logrho, logT_max) and set a minimum or maximum value. */
+#if 0
     if (logu < scvheosLogUofLogRhoLogT(Mat, logrho, logT_min)) return logT_min;
     if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, logT_max)) return logT_max;
+#endif
+    if (logu < scvheosLogUofLogRhoLogT(Mat, logrho, logT_min)) assert(logu >= scvheosLogUofLogRhoLogT(Mat, logrho, logT_min));
+    if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, logT_max)) assert(logu <= scvheosLogUofLogRhoLogT(Mat, logrho, logT_max));
 
     /* Make sure the root is bracketed.*/
     if (LogUofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogUofLogRhoLogT_GSL_rootfinder(logT_max, &Params) > 0.0) {
