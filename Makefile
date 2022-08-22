@@ -86,6 +86,9 @@ scvheoscalcintenergy: scvheoscalcintenergy.o $(OBJ)
 scvheosprintmat: scvheosprintmat.o $(OBJ)
 	cc -o scvheosprintmat scvheosprintmat.o $(OBJ) $(LIBS)
 
+scvheoscalctemprhou: scvheoscalctemprhou.o $(OBJ)
+	cc -o scvheoscalctemprhou scvheoscalctemprhou.o $(OBJ) $(LIBS)
+
 clean:
 	rm $(OBJ)
 
