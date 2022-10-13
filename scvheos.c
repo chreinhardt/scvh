@@ -6,7 +6,7 @@
  *
  * Author:   Christian Reinhardt
  * Created:  02.04.2020
- * Modified: 18.08.2022
+ * Modified: 03.10.2022
  */
 #include <stdlib.h>
 #include <math.h>
@@ -602,11 +602,25 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
     if (logu < scvheosLogUofLogRhoLogT(Mat, logrho, logT_min)) return logT_min;
     if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, logT_max)) return logT_max;
 #endif
+    /*
+    /// CR: Careful, this assumes that u(T) is monotonic AND u(T_min) < u(T_max)
     if (logu < scvheosLogUofLogRhoLogT(Mat, logrho, logT_min)) assert(logu >= scvheosLogUofLogRhoLogT(Mat, logrho, logT_min));
     if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, logT_max)) assert(logu <= scvheosLogUofLogRhoLogT(Mat, logrho, logT_max));
+    */
 
     /* Make sure the root is bracketed.*/
     if (LogUofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogUofLogRhoLogT_GSL_rootfinder(logT_max, &Params) > 0.0) {
+        // CR: 04.10.2022
+        fprintf(stderr, "scvheosLogTofLogRhoLogU:\n");
+
+        fprintf(stderr, "logrho= %g ", logrho);
+        fprintf(stderr, "logu= %g\n", logu);
+        fprintf(stderr, "LogTMin= %g ", Mat->LogTMin);
+        fprintf(stderr, "LogTMax= %g ", Mat->LogTMax);
+        fprintf(stderr, "loguMin= %g\n", scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMin));
+        fprintf(stderr, "loguMax= %g\n", scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMin));
+        fprintf(stderr, "loguMax= %g\n", LogUofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogUofLogRhoLogT_GSL_rootfinder(logT_max, &Params));
+
         fprintf(stderr, "Could not bracket root.\n");
         assert(0);
     }
@@ -1289,8 +1303,23 @@ int scvheosIsInExtrapLimit(SCVHEOSMAT *Mat, double rho, double u) {
     if (logrho < Mat->LogRhoMin) return SCVHEOS_OUTSIDE_RHOMIN;
     if (logrho > Mat->LogRhoMax) return SCVHEOS_OUTSIDE_RHOMAX;
     if (logu < scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMin)) return SCVHEOS_OUTSIDE_TMIN;
-    if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMax)) return SCVHEOS_OUTSIDE_TMAX;
+    // if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMax)) return SCVHEOS_OUTSIDE_TMAX;
+#if 0
+    // CR: 03.10.2022
+    if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMax)) {
+        fprintf(stderr, "scvheosIsInExtrapLimit:\n");
+        fprintf(stderr, "rho= %g ", rho);
+        fprintf(stderr, "logrho= %g ", logrho);
+        fprintf(stderr, "u= %g ", u);
+        fprintf(stderr, "logu= %g\n", logu);
+        fprintf(stderr, "LogTMin= %g ", Mat->LogTMin);
+        fprintf(stderr, "LogTMax= %g ", Mat->LogTMax);
+        fprintf(stderr, "loguMin= %g\n", scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMin));
+        fprintf(stderr, "loguMax= %g\n", scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMin));
 
+        return SCVHEOS_OUTSIDE_TMAX;
+    }
+#endif
     return SCVHEOS_SUCCESS;
 }
 
