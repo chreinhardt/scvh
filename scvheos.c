@@ -622,9 +622,9 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
         fprintf(stderr, "logrho= %g ", logrho);
         fprintf(stderr, "logu= %g\n", logu);
         fprintf(stderr, "LogTMin= %g ", Mat->LogTMin);
-        fprintf(stderr, "LogTMax= %g ", Mat->LogTMax);
+        fprintf(stderr, "LogTMax= %g\n", Mat->LogTMax);
         fprintf(stderr, "loguMin= %g\n", scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMin));
-        fprintf(stderr, "loguMax= %g\n", scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMin));
+        fprintf(stderr, "loguMax= %g\n", scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMax));
         fprintf(stderr, "loguMax= %g\n", LogUofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogUofLogRhoLogT_GSL_rootfinder(logT_max, &Params));
 
         fprintf(stderr, "Could not bracket root.\n");
