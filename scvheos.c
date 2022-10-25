@@ -100,7 +100,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
              */
             strcpy(inFile, "scvh_hhe_y0.275_dt_cgs_lowrhot.txt");
             nRho = 80;
-            nT = 49;
+            nT = 48;
             nSkip = 2;
             strcpy(Mat->MatString, "SCvH EOS H-He Y=0.275 (Saumon et al. 1995, Vazan et al. 2013).");
             break;
