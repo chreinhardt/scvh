@@ -126,9 +126,10 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     Mat->LogTMin = -2;
     Mat->LogTMax = 6;
 #endif
-    Mat->LogRhoMin = -10.5;
+    //Mat->LogRhoMin = -10.5;
+    Mat->LogRhoMin = -18.0;
     Mat->LogRhoMax = -0.9;
-    Mat->LogTMin = -2;
+    Mat->LogTMin = -2.0;
     Mat->LogTMax = 4.7;
 
     /*
