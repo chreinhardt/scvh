@@ -95,6 +95,9 @@ scvheoscalcurhotemp: scvheoscalcurhotemp.o $(OBJ)
 calc_model_entropy: calc_model_entropy.o $(OBJ)
 	cc -o calc_model_entropy calc_model_entropy.o $(OBJ) $(LIBS)
 
+scvheos_calc_isentrope: scvheos_calc_isentrope.o $(OBJ)
+	cc -o scvheos_calc_isentrope scvheos_calc_isentrope.o $(OBJ) $(LIBS)
+
 clean:
 	rm $(OBJ)
 
