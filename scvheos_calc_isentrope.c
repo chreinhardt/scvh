@@ -223,7 +223,7 @@ int main(int argc, char **argv) {
     double Ti;
     double rhof;
     double *rhoaxis;
-    int nRho = 10;
+    int nRho;
 
     dKpcUnit = 0.0;
     dMsolUnit = 0.0;
@@ -231,18 +231,20 @@ int main(int argc, char **argv) {
     //dMsolUnit = 9.53869E-04;
 
 
-    if (argc != 4) {
-        fprintf(stderr, "Usage: scvheos_calc_isentrope <rhoi> <Ti> <rhof>\n");
+    if (argc != 5) {
+        fprintf(stderr, "Usage: scvheos_calc_isentrope <rhoi> <Ti> <rhof> <nRho>\n");
         exit(1);
     }
 
     rhoi = atof(argv[1]);
     Ti = atof(argv[2]);
     rhof = atof(argv[3]);
+    nRho = atoi(argv[4]);
 
     assert(rhoi > 0.0);
     assert(Ti > 0.0);
     assert(rhof > 0.0);
+    assert(nRho > 1);
 
     rhoaxis = (double *) calloc(nRho, sizeof(double));
     assert(rhoaxis != NULL);
