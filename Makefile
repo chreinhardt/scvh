@@ -74,6 +74,9 @@ scvheos_hhe_limitedtoreos3: scvheos_hhe_limitedtoreos3.o $(OBJ)
 scvheoscalcentropy_gsl: scvheoscalcentropy_gsl.o $(OBJ)
 	cc -o scvheoscalcentropy_gsl scvheoscalcentropy_gsl.o $(OBJ) $(LIBS)
 
+test_ravit_model: test_ravit_model.o $(OBJ)
+	cc -o test_ravit_model test_ravit_model.o $(OBJ) $(LIBS)
+
 #
 # Tools.
 #
