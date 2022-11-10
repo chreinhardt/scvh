@@ -77,6 +77,9 @@ scvheoscalcentropy_gsl: scvheoscalcentropy_gsl.o $(OBJ)
 test_ravit_model: test_ravit_model.o $(OBJ)
 	cc -o test_ravit_model test_ravit_model.o $(OBJ) $(LIBS)
 
+test_ravit_model_prhou: test_ravit_model_prhou.o $(OBJ)
+	cc -o test_ravit_model_prhou test_ravit_model_prhou.o $(OBJ) $(LIBS)
+
 #
 # Tools.
 #
