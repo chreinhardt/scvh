@@ -98,8 +98,17 @@ scvheoscalctemprhou: scvheoscalctemprhou.o $(OBJ)
 scvheoscalcurhotemp: scvheoscalcurhotemp.o $(OBJ)
 	cc -o scvheoscalcurhotemp scvheoscalcurhotemp.o $(OBJ) $(LIBS)
 
+scvheos_calc_pofrhot: scvheos_calc_pofrhot.o $(OBJ)
+	cc -o scvheos_calc_pofrhot scvheos_calc_pofrhot.o $(OBJ) $(LIBS)
+
 calc_model_entropy: calc_model_entropy.o $(OBJ)
 	cc -o calc_model_entropy calc_model_entropy.o $(OBJ) $(LIBS)
+
+calc_ravit_model_entropy: calc_ravit_model_entropy.o $(OBJ)
+	cc -o calc_ravit_model_entropy calc_ravit_model_entropy.o $(OBJ) $(LIBS)
+
+calc_ravit_model_codeunits: calc_ravit_model_codeunits.o $(OBJ)
+	cc -o calc_ravit_model_codeunits calc_ravit_model_codeunits.o $(OBJ) $(LIBS)
 
 scvheos_calc_isentrope: scvheos_calc_isentrope.o $(OBJ)
 	cc -o scvheos_calc_isentrope scvheos_calc_isentrope.o $(OBJ) $(LIBS)
