@@ -97,6 +97,7 @@ int main(int argc, char **argv) {
     // model
     struct Model *model;
     double rel_err;
+    int nErr = 0;
 #if 0
     /* L_unit = 1 RE, v_unit = 1 km/s. */
     dKpcUnit = 2.06701e-13;
@@ -124,22 +125,31 @@ int main(int argc, char **argv) {
 
     Mat = scvheosInitMaterial(iMat, dKpcUnit, dMsolUnit);
 
-    /* Calculate the pressure. */
+    fprintf(stdout, "#%14s%15s%15s%15s%15s\n", "R [cm]", "rho [cgs]", "P [cgs]", "T [K]", "err");
+
+    /* Calculate the error in pressure pressure. */
     for (int i=0; i<model->nTable; i++) {
         double P = scvheosPofRhoT(Mat, model->rho[i]/Mat->dGmPerCcUnit, model->T[i]);
         /* Convert to cgs. */
         P *= Mat->dErgPerGmUnit*Mat->dGmPerCcUnit;
-        if (fabs((P-model->P[i])/P) > rel_err) {
-            printf("Error: err= %15.7E (rho=%15.7E g/cm^3 T=%15.7E K P=%15.7E P_model=%15.7E)\n", 
-                    fabs((P-model->P[i])/P), model->rho[i], model->T[i], P, model->P[i]);
-            exit(1);
+
+        double err = fabs((P-model->P[i])/P);
+
+        if (err > rel_err) {
+            fprintf(stderr, "Error: err= %15.7E (rho=%15.7E g/cm^3 T=%15.7E K P=%15.7E P_model=%15.7E)\n", 
+                    err, model->rho[i], model->T[i], P, model->P[i]);
+            nErr++;
+            //exit(1);
         }
+        fprintf(stdout, "%15.7E%15.7E%15.7E%15.7E%15.7E\n", model->R[i], model->rho[i], model->P[i], model->T[i], err); 
+
     }
 
     /* Free memory. */ 
     scvheosFinalizeMaterial(Mat);	
 
     free(model);
-
+    
+    fprintf(stderr, "nErr = %i (rel_err=%15.7E)\n", nErr, rel_err);
     return 0;
 }
