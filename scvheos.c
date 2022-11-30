@@ -104,6 +104,17 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             nSkip = 2;
             strcpy(Mat->MatString, "SCvH EOS H-He Y=0.275 (Saumon et al. 1995, Vazan et al. 2013).");
             break;
+        case SCVHEOS_HHE_EXT_LOWRHOT:
+            /*
+             * Hydrogen / Helium mixture (X=0.722, Y=0.278) based on the extended EOS tables
+             * limited to low rho and T.
+             */
+            strcpy(inFile, "scvh_extended_dt_hydrogen_722_helium_278_lowrhot.txt");
+            nRho = 201;
+            nT = 31;
+            nSkip = 2;
+            strcpy(Mat->MatString, "SCvH EOS H-He X=0.722 Y=0.278 (Saumon et al. 1995, Vazan et al. 2013).");
+            break;
         default:
             /* Unknown material */
             scvheosFinalizeMaterial(Mat);
@@ -126,11 +137,18 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     Mat->LogTMin = -2;
     Mat->LogTMax = 6;
 #endif
+#if 0
     //Mat->LogRhoMin = -10.5;
     Mat->LogRhoMin = -18.0;
     Mat->LogRhoMax = -0.9;
     Mat->LogTMin = -2.0;
     Mat->LogTMax = 4.7;
+#endif
+    Mat->LogRhoMin = Mat->dLogRhoAxis[0];
+    Mat->LogRhoMax = Mat->dLogRhoAxis[Mat->nRho-1];
+    Mat->LogTMin = Mat->dLogTAxis[0];
+    //Mat->LogTMax = Mat->dLogTAxis[Mat->nT-1];
+    Mat->LogTMax = 3.6;
 
     /*
      * Convert from cgs to code units.

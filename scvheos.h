@@ -27,10 +27,11 @@
 /*
  * Material ids.
  */
-#define SCVHEOS_H           110
-#define SCVHEOS_HE          111
-#define SCVHEOS_HHE         112
-#define SCVHEOS_HHE_LOWRHOT 113
+#define SCVHEOS_H               110
+#define SCVHEOS_HE              111
+#define SCVHEOS_HHE             112
+#define SCVHEOS_HHE_LOWRHOT     113
+#define SCVHEOS_HHE_EXT_LOWRHOT 114
 
 /*
  * Define error codes.
