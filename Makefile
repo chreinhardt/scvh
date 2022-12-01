@@ -80,6 +80,9 @@ test_ravit_model: test_ravit_model.o $(OBJ)
 test_ravit_model_prhou: test_ravit_model_prhou.o $(OBJ)
 	cc -o test_ravit_model_prhou test_ravit_model_prhou.o $(OBJ) $(LIBS)
 
+extrap_scvh_on_grid: extrap_scvh_on_grid.o $(OBJ)
+	cc -o extrap_scvh_on_grid extrap_scvh_on_grid.o $(OBJ) $(LIBS)
+
 #
 # Tools.
 #
