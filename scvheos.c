@@ -121,6 +121,9 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             assert(0);
     }
 
+    /* Currently only SCVHEOS_HHE_EXT_LOWRHOT works. */
+    assert(iMat == SCVHEOS_HHE_EXT_LOWRHOT);
+
     /*
      * Allocate memory and read the EOS table.
      */
