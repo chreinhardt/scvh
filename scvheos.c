@@ -147,11 +147,17 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     Mat->LogTMin = -2.0;
     Mat->LogTMax = 4.7;
 #endif
+#if 0
     Mat->LogRhoMin = Mat->dLogRhoAxis[0];
     Mat->LogRhoMax = Mat->dLogRhoAxis[Mat->nRho-1];
     Mat->LogTMin = Mat->dLogTAxis[0];
     //Mat->LogTMax = Mat->dLogTAxis[Mat->nT-1];
     Mat->LogTMax = 3.6;
+#endif
+    Mat->LogRhoMin = -25.0;
+    Mat->LogRhoMax = 1.0;
+    Mat->LogTMin = -1;
+    Mat->LogTMax = 4;
 
     /*
      * Convert from cgs to code units.
