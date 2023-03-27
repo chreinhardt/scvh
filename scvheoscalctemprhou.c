@@ -13,7 +13,7 @@
 
 int main(int argc, char **argv) {
 	SCVHEOSMAT *Mat;
-    int iMat = SCVHEOS_HHE_LOWRHOT;
+    int iMat = SCVHEOS_HHE_EXT_LOWRHOT;
     double dKpcUnit = 2.06701e-13;
 	double dMsolUnit = 4.80438e-08;
     double rho;
