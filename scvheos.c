@@ -478,7 +478,7 @@ double scvheosLogCsofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     }
 
     if (gsl_interp2d_eval_e_extrap(Mat->InterpLogCs, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogCArray, logT, logrho,
-			    Mat->xAccP, Mat->yAccP, &logcs) != GSL_SUCCESS) {
+			    Mat->xAccCs, Mat->yAccCs, &logcs) != GSL_SUCCESS) {
 	    fprintf(stderr, "scvheosLogCsofLogRhoLogT: Interpolation failed (logrho= %15.7E logT= %15.7E).\n", logrho, logT);
 	    exit(1);
     }
