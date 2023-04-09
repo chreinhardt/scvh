@@ -116,6 +116,9 @@ calc_ravit_model_codeunits: calc_ravit_model_codeunits.o $(OBJ)
 scvheos_calc_isentrope: scvheos_calc_isentrope.o $(OBJ)
 	cc -o scvheos_calc_isentrope scvheos_calc_isentrope.o $(OBJ) $(LIBS)
 
+calc_isentrope_rhot: calc_isentrope_rhot.o $(OBJ)
+	cc -o calc_isentrope_rhot calc_isentrope_rhot.o $(OBJ) $(LIBS)
+
 clean:
 	rm $(OBJ)
 
