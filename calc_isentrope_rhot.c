@@ -33,12 +33,20 @@ int main(int argc, char **argv) {
     fprintf(stderr, "\n");
     
     /* Number of data points along one isentrope. */
-    nRho = 100;
-    
+    nRho = 1000;
+
+#if 0    
     LogRhoMin = Mat->dLogRhoAxis[0];
     LogRhoMax = Mat->dLogRhoAxis[Mat->nRho-1];
 
     LogTMin = Mat->dLogTAxis[0];
+#endif
+
+    LogRhoMin = log10(4.5800000E-12);
+    LogRhoMax = log10(5.0300000E-08);
+
+    LogTMin = log10(4.9000000E+01);
+
 
     /* Generate rho axis and calculate entropy for each isentrope. */
     logrhoAxis = (double *) calloc(nRho, sizeof(double));
@@ -57,11 +65,12 @@ int main(int argc, char **argv) {
     fprintf(fp, "# logT(logrho, logs) (nRho = %i)\n", nRho);
     fprintf(fp, "# logs=%15.7E\n", logs);
     fprintf(fp, "# Interpolator: %s (GSL)\n", gsl_interp2d_name(Mat->InterpLogS));
+    fprintf(fp, "#%14s%15s%15s%15s%15s\n", "logrho", "logT", "logs", "logs_int", "err");
 
     for (int i=0; i<nRho; i++) {
         double logT = scvheosLogTofLogRhoLogS(Mat, logrhoAxis[i], logs);
-        
-        fprintf(fp, "%15.7E%15.7E%15.7E\n", logrhoAxis[i], logT, logs);
+        double logs_int = scvheosLogSofLogRhoLogT(Mat, logrhoAxis[i], logT); 
+        fprintf(fp, "%15.7E%15.7E%15.7E%15.7E%15.7E\n", logrhoAxis[i], logT, logs, logs_int, fabs((logs-logs_int)/logs));
     }
 
     fclose(fp);
