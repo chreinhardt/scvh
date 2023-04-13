@@ -109,10 +109,17 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
              * Hydrogen / Helium mixture (X=0.722, Y=0.278) based on the extended EOS tables
              * limited to low rho and T.
              */
+#if 0
             strcpy(inFile, "scvh_extended_dt_hydrogen_722_helium_278_lowrhot.txt");
             nRho = 201;
             nT = 31;
             nSkip = 2;
+#endif
+            strcpy(inFile, "scvh_extended_dt_hydrogen_722_helium_278.data");
+            nRho = 460;
+            nT = 76;
+            nSkip = 1;
+
             strcpy(Mat->MatString, "SCvH EOS H-He X=0.722 Y=0.278 (Saumon et al. 1995, Vazan et al. 2013).");
             break;
         default:
@@ -154,10 +161,16 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     //Mat->LogTMax = Mat->dLogTAxis[Mat->nT-1];
     Mat->LogTMax = 3.6;
 #endif
+#if 0
     Mat->LogRhoMin = -25.0;
     Mat->LogRhoMax = 1.0;
     Mat->LogTMin = -1;
     Mat->LogTMax = 4;
+#endif
+    Mat->LogRhoMin = Mat->dLogRhoAxis[0];
+    Mat->LogRhoMax = Mat->dLogRhoAxis[Mat->nRho-1];
+    Mat->LogTMin = Mat->dLogTAxis[0];
+    Mat->LogTMax = Mat->dLogTAxis[Mat->nT-1];
 
     /*
      * Convert from cgs to code units.
@@ -393,7 +406,11 @@ int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
             cs2 = dPdrho + T/(rho*rho*cv)*dPdT*dPdT;
 
             assert(!isinf(cs2));
-            assert(cs2 > 0.0);
+
+            if (cs2 <= 0.0) {
+                cs2 = 0.0;
+            }
+            //assert(cs2 > 0.0);
 
             Mat->dLogCArray[j*Mat->nT+i] = log10(sqrt(cs2));
         }
@@ -657,6 +674,7 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
 
         fprintf(stderr, "Could not bracket root.\n");
         assert(0);
+        //return -1e50;
     }
 
     gsl_root_fsolver_set(Solver, &F, logT_min, logT_max);
@@ -802,6 +820,7 @@ double scvheosLogRhoofLogPLogT(SCVHEOSMAT *Mat, double logP, double logT) {
     /* Make sure the root is bracketed.*/
     if (LogPofLogRhoLogT_GSL_rootfinder(logrho_min, &Params)*LogPofLogRhoLogT_GSL_rootfinder(logrho_max, &Params) > 0.0) {
         fprintf(stderr, "Could not bracket root.\n");
+        //return 1e-50;
         assert(0);
     }
 
