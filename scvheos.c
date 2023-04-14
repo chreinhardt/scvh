@@ -700,7 +700,11 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
         if (status != GSL_CONTINUE) break;
     }
 
-    if (status != GSL_SUCCESS) logT = -1.0;
+    //if (status != GSL_SUCCESS) logT = -1.0;
+    // Add stricter tests
+    assert(status == GSL_SUCCESS); 
+    double logu_int = scvheosLogUofLogRhoLogT(Mat, logrho, logT);
+    assert(fabs(logu-logu_int)/logu < 1e-3);
 
     gsl_root_fsolver_free(Solver);
 
@@ -775,7 +779,10 @@ double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
         if (status != GSL_CONTINUE) break;
     }
 
-    if (status != GSL_SUCCESS) logT = -1.0;
+    //if (status != GSL_SUCCESS) logT = -1.0;
+    assert(status == GSL_SUCCESS); 
+    double logs_int = scvheosLogSofLogRhoLogT(Mat, logrho, logT);
+    assert(fabs(logs-logs_int)/logs < 1e-3);
 
     gsl_root_fsolver_free(Solver);
 
