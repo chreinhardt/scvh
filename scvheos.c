@@ -6,7 +6,7 @@
  *
  * Author:   Christian Reinhardt
  * Created:  02.04.2020
- * Modified: 03.10.2022
+ * Modified: 16.04.2023
  */
 #include <stdlib.h>
 #include <math.h>
@@ -704,6 +704,11 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
     // Add stricter tests
     assert(status == GSL_SUCCESS); 
     double logu_int = scvheosLogUofLogRhoLogT(Mat, logrho, logT);
+
+    if (fabs(logu-logu_int)/logu >= 1e-3) {
+        fprintf(stderr, "scvheosLogTofLogRhoLogU: logrho=%15.7E logu=%15.7E logT=%15.7E logu_int=%15.7E\n", logrho, logu, logT, logu_int);
+    }
+
     assert(fabs(logu-logu_int)/logu < 1e-3);
 
     gsl_root_fsolver_free(Solver);
