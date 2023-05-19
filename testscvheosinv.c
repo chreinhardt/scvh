@@ -5,7 +5,7 @@
  *
  * Author: Christian Reinhardt
  * Created: 16.08.2022
- * Modified: 18.08.2022
+ * Modified: 12.04.2023
  */
 #include <math.h>
 #include <stdio.h>
@@ -15,8 +15,7 @@
 int main(int argc, char **argv) {
     // SCvH material
     SCVHEOSMAT *Mat;
-    int iMat = SCVHEOS_HHE_LOWRHOT;
-    //int iMat = SCVHEOS_HHE;
+    int iMat = SCVHEOS_HHE_EXT_LOWRHOT;
     double dKpcUnit = 0.0;
 	double dMsolUnit = 0.0;
     double *logrhoAxis;
@@ -27,6 +26,11 @@ int main(int argc, char **argv) {
 
     fprintf(stderr, "SCVHEOS: Initializing material %i\n", iMat); 
     Mat = scvheosInitMaterial(iMat, dKpcUnit, dMsolUnit);
+
+    fprintf(stderr, "nRho = %i nT = %i\n", Mat->nRho, Mat->nT);
+    fprintf(stderr, "LogRhoMin= %15.7E LogRhoMax= %15.7E\n", Mat->LogRhoMin, Mat->LogRhoMax);
+    fprintf(stderr, "LogTMin= %15.7E LogTMax= %15.7E\n", Mat->LogTMin, Mat->LogTMax);
+
     fprintf(stderr, "Doing %s interpolation for logP(logrho, logT)\n", gsl_interp2d_name(Mat->InterpLogP));
     fprintf(stderr, "\n");
 
@@ -44,31 +48,6 @@ int main(int argc, char **argv) {
     for (int i=0; i<nT; i++) {
         logTAxis[i] = Mat->dLogTAxis[0] + i*(Mat->dLogTAxis[Mat->nT-1]-Mat->dLogTAxis[0])/(nT-1);
     }
-
-#if 0
-    nRho = (Mat->nRho-1)*2+1;
-    nT = (Mat->nT-1)*2+1;
-
-    /* Generate rho and T axis. */
-    logrhoAxis = (double *) calloc(nRho, sizeof(double));
-    logTAxis = (double *) calloc(nT, sizeof(double));
-
-    for (int i=0; i<Mat->nRho-1; i++) {
-        for (int j=0; j<2; j++) {
-            logrhoAxis[i*2+j] = Mat->dLogRhoAxis[i] + j*(Mat->dLogRhoAxis[i+1]-Mat->dLogRhoAxis[i])/2;
-        }
-    }
-
-    logrhoAxis[nRho-1] = Mat->dLogRhoAxis[Mat->nRho-1];
-
-    for (int i=0; i<Mat->nT-1; i++) {
-        for (int j=0; j<2; j++) {
-            logTAxis[i*2+j] = Mat->dLogTAxis[i] + j*(Mat->dLogTAxis[i+1]-Mat->dLogTAxis[i])/2;
-        }
-    }
-
-    logTAxis[nT-1] = Mat->dLogTAxis[Mat->nT-1];
-#endif
 
     /* Write both axis to a file. */
     fp = fopen("testscvheosinv_rhoaxis.txt", "w");
@@ -94,7 +73,7 @@ int main(int argc, char **argv) {
     fprintf(fp, "# logT(logrho, logu) (nRho = %i nT= %i)\n", nRho, nT);
     fprintf(fp, "# Interpolator: %s (GSL)\n", gsl_interp2d_name(Mat->InterpLogU));
 
-    for (int i=0; i<nT; i++) {
+    for (int i=0; i<nT-1; i++) {
         for (int j=0; j<nRho; j++) {
             double logu = scvheosLogUofLogRhoLogT(Mat, logrhoAxis[j], logTAxis[i]);
             double logT = scvheosLogTofLogRhoLogU(Mat, logrhoAxis[j], logu);
@@ -112,7 +91,7 @@ int main(int argc, char **argv) {
     fprintf(fp, "# logT(logrho, logs) (nRho = %i nT= %i)\n", nRho, nT);
     fprintf(fp, "# Interpolator: %s (GSL)\n", gsl_interp2d_name(Mat->InterpLogS));
 
-    for (int i=0; i<nT; i++) {
+    for (int i=0; i<nT-1; i++) {
         for (int j=0; j<nRho; j++) {
             double logs = scvheosLogSofLogRhoLogT(Mat, logrhoAxis[j], logTAxis[i]);
             double logT = scvheosLogTofLogRhoLogS(Mat, logrhoAxis[j], logs);
@@ -130,7 +109,7 @@ int main(int argc, char **argv) {
     fprintf(fp, "# logrho(logP, logT) (nRho = %i nT= %i)\n", nRho, nT);
     fprintf(fp, "# Interpolator: %s (GSL)\n", gsl_interp2d_name(Mat->InterpLogP));
 
-    for (int i=0; i<nT; i++) {
+    for (int i=0; i<nT-1; i++) {
         for (int j=0; j<nRho; j++) {
             double logP = scvheosLogPofLogRhoLogT(Mat, logrhoAxis[j], logTAxis[i]);
             double logrho = scvheosLogRhoofLogPLogT(Mat, logP, logTAxis[i]);
