@@ -119,6 +119,12 @@ scvheos_calc_isentrope: scvheos_calc_isentrope.o $(OBJ)
 calc_isentrope_rhot: calc_isentrope_rhot.o $(OBJ)
 	cc -o calc_isentrope_rhot calc_isentrope_rhot.o $(OBJ) $(LIBS)
 
+fix_lowt_entropy: fix_lowt_entropy.o $(OBJ)
+	cc -o fix_lowt_entropy fix_lowt_entropy.o $(OBJ) $(LIBS)
+
+calc_rhot_isentropes: calc_rhot_isentropes.o $(OBJ)
+	cc -o calc_rhot_isentropes calc_rhot_isentropes.o $(OBJ) $(LIBS)
+
 clean:
 	rm $(OBJ)
 
