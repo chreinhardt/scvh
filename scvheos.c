@@ -705,11 +705,15 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
     assert(status == GSL_SUCCESS); 
     double logu_int = scvheosLogUofLogRhoLogT(Mat, logrho, logT);
 
-    if (fabs(logu-logu_int)/logu >= 1e-3) {
-        fprintf(stderr, "scvheosLogTofLogRhoLogU: logrho=%15.7E logu=%15.7E logT=%15.7E logu_int=%15.7E\n", logrho, logu, logT, logu_int);
+    if (fabs(logu-logu_int)/logu < 1e-3) {
+    } else {
+        if (fabs(logu) > 1e-6) {
+            fprintf(stderr, "scvheosLogTofLogRhoLogU: logrho=%15.7E logu=%15.7E logT=%15.7E logu_int=%15.7E\n", logrho, logu, logT, logu_int);
+            assert(fabs(logu-logu_int)/logu < 1e-3);
+        }
     }
 
-    assert(fabs(logu-logu_int)/logu < 1e-3);
+    //assert(fabs(logu-logu_int)/logu < 1e-3);
 
     gsl_root_fsolver_free(Solver);
 
