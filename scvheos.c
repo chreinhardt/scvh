@@ -171,23 +171,6 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
         Mat->dGmPerCcUnit = (Mat->dMsolUnit*MSOLG)/pow(Mat->dKpcUnit*KPCCM,3.0);
         /* code time --> seconds */
         Mat->dSecUnit = sqrt(1/(Mat->dGmPerCcUnit*GCGS));
-
-        for (int i=0; i<Mat->nRho; i++) {
-            Mat->dLogRhoAxis[i] -= log10(Mat->dGmPerCcUnit);
-        }
-        
-        for (int i=0; i<Mat->nT; i++) {
-            for (int j=0; j<Mat->nRho; j++) {
-                Mat->dLogPArray[j*Mat->nT+i] -= log10(Mat->dErgPerGmUnit*Mat->dGmPerCcUnit);
-                Mat->dLogUArray[j*Mat->nT+i] -= log10(Mat->dErgPerGmUnit);
-                Mat->dLogSArray[j*Mat->nT+i] -= log10(Mat->dErgPerGmUnit);
-            }
-        }
- 
-        /* Convert table limits and reference density. */
-        Mat->LogRhoMin -= log10(Mat->dGmPerCcUnit);
-        Mat->LogRhoMax -= log10(Mat->dGmPerCcUnit);
-        Mat->rho0 /= Mat->dGmPerCcUnit;
     } else {
         /* Prevent problems if dKpcUnit or dMsolUnit are not set. */
         Mat->dGasConst = 0.0;
@@ -195,6 +178,23 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
         Mat->dGmPerCcUnit = 1.0;
         Mat->dSecUnit = 1.0;
     }
+    
+    for (int i=0; i<Mat->nRho; i++) {
+        Mat->dLogRhoAxis[i] -= log10(Mat->dGmPerCcUnit);
+    }
+    
+    for (int i=0; i<Mat->nT; i++) {
+        for (int j=0; j<Mat->nRho; j++) {
+            Mat->dLogPArray[j*Mat->nT+i] -= log10(Mat->dErgPerGmUnit*Mat->dGmPerCcUnit);
+            Mat->dLogUArray[j*Mat->nT+i] -= log10(Mat->dErgPerGmUnit);
+            Mat->dLogSArray[j*Mat->nT+i] -= log10(Mat->dErgPerGmUnit);
+        }
+    }
+
+    /* Convert table limits and reference density. */
+    Mat->LogRhoMin -= log10(Mat->dGmPerCcUnit);
+    Mat->LogRhoMax -= log10(Mat->dGmPerCcUnit);
+    Mat->rho0 /= Mat->dGmPerCcUnit;
 
     /*
      * Initialize the GSL interpolator.
