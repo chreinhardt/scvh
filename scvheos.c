@@ -762,8 +762,15 @@ double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
     logT_max = Mat->LogTMax;
 
     /* Check if logs < logs(logrho, logT_min) or logs > logs(logrho, logT_max) and set a minimum or maximum value. */
-    if (logs < scvheosLogSofLogRhoLogT(Mat, logrho, logT_min)) return logT_min;
-    if (logs > scvheosLogSofLogRhoLogT(Mat, logrho, logT_max)) return logT_max;
+    if (logs < scvheosLogSofLogRhoLogT(Mat, logrho, logT_min)) {
+        gsl_root_fsolver_free(Solver);
+        return logT_min;
+    }
+
+    if (logs > scvheosLogSofLogRhoLogT(Mat, logrho, logT_max)) {
+        gsl_root_fsolver_free(Solver);
+        return logT_max;
+    }
 
     /* Make sure the root is bracketed.*/
     if (LogSofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogSofLogRhoLogT_GSL_rootfinder(logT_max, &Params) > 0.0) {
