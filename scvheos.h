@@ -13,10 +13,10 @@
 /*
  * Version.
  */
-#define SCVHEOS_VERSION_TEXT      "1.0.0"
+#define SCVHEOS_VERSION_TEXT      "1.0.1"
 #define SCVHEOS_VERSION_MAJOR     1
 #define SCVHEOS_VERSION_MINOR     0
-#define SCVHEOS_VERSION_PATCH     0
+#define SCVHEOS_VERSION_PATCH     1
 
 /*
  * Error codes.
