@@ -56,7 +56,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     Mat->nT = 0;
     Mat->dLogBase = 10.0;
 
-    /* Set the reference density for ballic. */ 
+    /* Set the reference density for ballic (careful: this fails for clumps!!). */ 
     Mat->rho0 = 1e-3; 
 
     /*
