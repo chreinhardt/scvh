@@ -13,12 +13,12 @@
 
 int main(int argc, char **argv) {
 	SCVHEOSMAT *Mat;
-    int iMat = SCVHEOS_HHE_LOWRHOT;
+    int iMat =  0.0;
     double dKpcUnit = 0.0;
 	double dMsolUnit = 0.0;
-    double rho;
-    double T;
-    double P;
+    double rho = 0.0;
+    double T = 0.0;
+    double P = 0.0;
 
 #if 0
     dKpcUnit = 2.06701e-13;
@@ -28,13 +28,14 @@ int main(int argc, char **argv) {
     dMsolUnit = 9.53869E-04;
 #endif
 
-    if (argc != 3) {
-        fprintf(stderr, "Usage: scvheos_calc_pofrhot <rho> <T>\n");
+    if (argc != 4) {
+        fprintf(stderr, "Usage: scvheos_calc_pofrhot <rho> <T> <iMat>\n");
         exit(1);
     }
 
     rho = atof(argv[1]);
-    T = atof(argv[2]);
+    T = atof(argv[2]); 
+    iMat = atoi(argv[3]);
 
     assert(rho > 0.0);
     assert(T > 0.0);
