@@ -104,6 +104,9 @@ scvheoscalcurhotemp: scvheoscalcurhotemp.o $(OBJ)
 scvheos_calc_pofrhot: scvheos_calc_pofrhot.o $(OBJ)
 	cc -o scvheos_calc_pofrhot scvheos_calc_pofrhot.o $(OBJ) $(LIBS)
 
+scvheos_calc_rhoofpt: scvheos_calc_rhoofpt.o $(OBJ)
+	cc -o scvheos_calc_rhoofpt scvheos_calc_rhoofpt.o $(OBJ) $(LIBS)
+
 calc_model_entropy: calc_model_entropy.o $(OBJ)
 	cc -o calc_model_entropy calc_model_entropy.o $(OBJ) $(LIBS)
 
