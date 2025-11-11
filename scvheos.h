@@ -32,6 +32,8 @@
 #define SCVHEOS_HHE             112
 #define SCVHEOS_HHE_LOWRHOT     113
 #define SCVHEOS_HHE_EXT_LOWRHOT 114
+#define SCVHEOS_H_EXT           115
+#define SCVHEOS_HE_EXT          116
 
 /*
  * Define error codes.
