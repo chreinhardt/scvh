@@ -133,7 +133,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
 
             strcpy(Mat->MatString, "SCvH EOS He extended to lower pressures and temperatures (Saumon et al. 1995, Vazan et al. 2013).");
             break;
-        case SCVHEOS_HHE_H2O_Z_01:
+        case SCVHEOS_HHE_H2O_Z_1:
             /*
              * H-He and H2O mixture obtained from Simon.
              */
@@ -142,7 +142,29 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             nT = 64;
             nSkip = 2;
 
-            strcpy(Mat->MatString, "SCvH EOS H-He and H2O mixture Z=0.01.");
+            strcpy(Mat->MatString, "SCvH EOS H-He and H2O mixture Z=0.1.");
+            break;
+        case SCVHEOS_HHE_H2O_Z_05:
+            /*
+             * H-He and H2O mixture obtained from Simon.
+             */
+            strcpy(inFile, "scvh_h2o_mixture_table_Z0.050.data");
+            nRho = 128;
+            nT = 64;
+            nSkip = 2;
+
+            strcpy(Mat->MatString, "SCvH EOS H-He and H2O mixture Z=0.05.");
+            break;
+        case SCVHEOS_HHE_H2O_Z_012:
+            /*
+             * H-He and H2O mixture obtained from Simon.
+             */
+            strcpy(inFile, "scvh_h2o_mixture_table_Z0.012.data");
+            nRho = 128;
+            nT = 64;
+            nSkip = 2;
+
+            strcpy(Mat->MatString, "SCvH EOS H-He and H2O mixture Z=0.012.");
             break;
         default:
             /* Unknown material */

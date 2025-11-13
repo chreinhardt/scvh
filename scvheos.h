@@ -34,7 +34,9 @@
 #define SCVHEOS_HHE_EXT_LOWRHOT 114
 #define SCVHEOS_H_EXT           115
 #define SCVHEOS_HE_EXT          116
-#define SCVHEOS_HHE_H2O_Z_01    117
+#define SCVHEOS_HHE_H2O_Z_1     117
+#define SCVHEOS_HHE_H2O_Z_05    118
+#define SCVHEOS_HHE_H2O_Z_012   119
 
 
 /*
