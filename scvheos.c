@@ -449,6 +449,12 @@ int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
             /* Use log(rho^2) = 2*log(rho). */
             cs2 = dPdrho + T/(rho*rho*cv)*dPdT*dPdT;
 
+            // For the H-He and H2O mixture with Z=0.05 the sound speed can be inf so we set it to a large value
+            if (!isfinite(cs2)) {
+                fprintf(stderr, "iT= %i jRho= %i rho= %g T= %g logrho= %g logT= %g\n", i, j, rho, T, Mat->dLogRhoAxis[j], Mat->dLogTAxis[i]);
+                fprintf(stderr, "dPdRho= %g dPdT= %g cv= %g cs= %g\n", dPdrho, dPdT, cv, cs2);
+                cs2 = 1e10;
+            }
             assert(!isinf(cs2));
 
             if (cs2 <= 0.0) {
