@@ -719,7 +719,8 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
     if (LogUofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogUofLogRhoLogT_GSL_rootfinder(logT_max, &Params) > 0.0) {
         // CR: 04.10.2022
         fprintf(stderr, "scvheosLogTofLogRhoLogU:\n");
-
+        fprintf(stderr, "\n");
+        fprintf(stderr, "iMat= %g ", Mat->iMat);
         fprintf(stderr, "logrho= %g ", logrho);
         fprintf(stderr, "logu= %g\n", logu);
         fprintf(stderr, "LogTMin= %g ", Mat->LogTMin);
@@ -729,6 +730,7 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
         fprintf(stderr, "loguMax= %g\n", LogUofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogUofLogRhoLogT_GSL_rootfinder(logT_max, &Params));
 
         fprintf(stderr, "Could not bracket root.\n");
+        fprintf(stderr, "\n");
         assert(0);
         //return -1e50;
     }
