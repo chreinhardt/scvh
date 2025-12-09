@@ -720,7 +720,7 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
         // CR: 04.10.2022
         fprintf(stderr, "scvheosLogTofLogRhoLogU:\n");
         fprintf(stderr, "\n");
-        fprintf(stderr, "iMat= %g ", Mat->iMat);
+        fprintf(stderr, "iMat= %i ", Mat->iMat);
         fprintf(stderr, "logrho= %g ", logrho);
         fprintf(stderr, "logu= %g\n", logu);
         fprintf(stderr, "LogTMin= %g ", Mat->LogTMin);
