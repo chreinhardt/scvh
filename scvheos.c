@@ -731,6 +731,9 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
 
         fprintf(stderr, "Could not bracket root.\n");
         fprintf(stderr, "\n");
+        // 11.10.2025: Just return T_min or T_max if u(rho, T) is outside of the eos table
+        if (logu <= scvheosLogUofLogRhoLogT(Mat, logrho, logT_min)) return logT_min;
+        if (logu >= scvheosLogUofLogRhoLogT(Mat, logrho, logT_min)) return logT_max;
         assert(0);
         //return -1e50;
     }
