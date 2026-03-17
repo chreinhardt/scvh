@@ -122,6 +122,17 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
 
             strcpy(Mat->MatString, "SCvH EOS H-He X=0.722 Y=0.278 (Saumon et al. 1995, Vazan et al. 2013).");
             break;
+        case SCVHEOS_H_EXT:
+            /*
+             * Hydrogen EOS table extended to lower pressures and temperatures .
+             */
+            strcpy(inFile, "hydrogen_scvh_extended_dt.data");
+            nRho = 460;
+            nT = 76;
+            nSkip = 2;
+
+            strcpy(Mat->MatString, "SCvH EOS H extended to lower pressures and temperatures (Saumon et al. 1995, Vazan et al. 2013).");
+            break;
         case SCVHEOS_HE_EXT:
             /*
              * Helium EOS table extended to lower pressures and temperatures .
