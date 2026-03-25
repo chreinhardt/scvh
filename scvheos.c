@@ -184,7 +184,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             strcpy(inFile, "scvh_ext_dt_h_0.500_he_0.500.data");
             nRho = 460;
             nT = 76;
-            nSkip = 1;
+            nSkip = 2;
 
             strcpy(Mat->MatString, "SCvH EOS H-He X=0.5 Y=0.5 (Saumon et al. 1995, Vazan et al. 2013).");
             break;
@@ -195,7 +195,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             strcpy(inFile, "scvh_ext_dt_h_0.200_he_0.800.data");
             nRho = 460;
             nT = 76;
-            nSkip = 1;
+            nSkip = 2;
 
             strcpy(Mat->MatString, "SCvH EOS H-He X=0.5 Y=0.5 (Saumon et al. 1995, Vazan et al. 2013).");
             break;
