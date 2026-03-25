@@ -31,13 +31,14 @@
 #define SCVHEOS_HE              111
 #define SCVHEOS_HHE             112
 #define SCVHEOS_HHE_LOWRHOT     113
-#define SCVHEOS_HHE_EXT_LOWRHOT 114
+#define SCVHEOS_HHE_EXT         114
 #define SCVHEOS_H_EXT           115
 #define SCVHEOS_HE_EXT          116
 #define SCVHEOS_HHE_H2O_Z_1     117
 #define SCVHEOS_HHE_H2O_Z_05    118
 #define SCVHEOS_HHE_H2O_Z_012   119
-
+#define SCVHEOS_HHE_EXT_Y_5     120
+#define SCVHEOS_HHE_EXT_Y_8     121
 
 /*
  * Define error codes.

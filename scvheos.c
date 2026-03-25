@@ -104,7 +104,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             nSkip = 2;
             strcpy(Mat->MatString, "SCvH EOS H-He Y=0.275 (Saumon et al. 1995, Vazan et al. 2013).");
             break;
-        case SCVHEOS_HHE_EXT_LOWRHOT:
+        case SCVHEOS_HHE_EXT:
             /*
              * Hydrogen / Helium mixture (X=0.722, Y=0.278) based on the extended EOS tables
              * limited to low rho and T.
@@ -176,6 +176,28 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             nSkip = 2;
 
             strcpy(Mat->MatString, "SCvH EOS H-He and H2O mixture Z=0.012.");
+            break;
+        case SCVHEOS_HHE_EXT_Y_5:
+            /*
+             * Hydrogen / Helium mixture (X=0.5, Y=0.5) based on the extended EOS tables
+             */
+            strcpy(inFile, "scvh_ext_dt_h_0.500_he_0.500.data");
+            nRho = 460;
+            nT = 76;
+            nSkip = 1;
+
+            strcpy(Mat->MatString, "SCvH EOS H-He X=0.5 Y=0.5 (Saumon et al. 1995, Vazan et al. 2013).");
+            break;
+        case SCVHEOS_HHE_EXT_Y_8:
+            /*
+             * Hydrogen / Helium mixture (X=0.2, Y=0.8) based on the extended EOS tables
+             */
+            strcpy(inFile, "scvh_ext_dt_h_0.200_he_0.800.data");
+            nRho = 460;
+            nT = 76;
+            nSkip = 1;
+
+            strcpy(Mat->MatString, "SCvH EOS H-He X=0.5 Y=0.5 (Saumon et al. 1995, Vazan et al. 2013).");
             break;
         default:
             /* Unknown material */
