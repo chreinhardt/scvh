@@ -12,12 +12,24 @@
 #include <gsl/gsl_interp2d.h>
 
 /*
- * Version.
+ * Version history
+ *   1.1.0  failure sentinel SCVHEOS_FAIL_VALUE in linear space; live T_max
+ *          check and u <= 0 rejection in scvheosIsInExtrapLimit; cs^2 floor;
+ *          entropy in cgs (EOSlib convention); isentrope clamped at the table
+ *          edge like ANEOSisentropicU, counted in nLookupFail; table
+ *          validation (finite, rectangular, increasing axes, monotonicity
+ *          report); direct closed-form inversion of the bilinear interpolant
+ *          replaces the GSL root finders; scvheosPCTofRhoU; analytic
+ *          derivatives on the bilinear patch; sound-speed table from central
+ *          differences of the arrays; one accelerator pair; removed
+ *          dLogBase, dGasConst, dSecUnit, InterpType, the *_GSL_Params
+ *          structs and *_GSL_rootfinder callbacks; SCVHEOS_FAIL = -99;
+ *          SCVHEOS_HHE_EXT for id 114 (old name kept as alias).
  */
-#define SCVHEOS_VERSION_TEXT      "1.0.1"
+#define SCVHEOS_VERSION_TEXT      "1.1.0"
 #define SCVHEOS_VERSION_MAJOR     1
-#define SCVHEOS_VERSION_MINOR     0
-#define SCVHEOS_VERSION_PATCH     1
+#define SCVHEOS_VERSION_MINOR     1
+#define SCVHEOS_VERSION_PATCH     0
 
 /*
  * Status codes. SCVHEOS_FAIL is a generic failure (initialization, I/O);
@@ -103,7 +115,7 @@ typedef struct scvheosMat {
     char MatString[256];
     double rho0;
 
-    /* Define limits of the table (or extrapolation). */
+    /* Lookup limits: the table bounds, no extrapolation. */
     double LogRhoMin;
     double LogRhoMax;
     double LogTMin;
@@ -181,7 +193,7 @@ double scvheosTofRhoU(SCVHEOSMAT *Mat, double rho, double u);
 double scvheosTofRhoS(SCVHEOSMAT *Mat, double rho, double s);
 double scvheosRhoofPT(SCVHEOSMAT *Mat, double P, double T);
 
-/* Use df/dx = f/x*ln(f)/ln(x). */
+/* Derivatives on the bilinear patch: df/dx = f/x * dlogf/dlogx. */
 double scvheosdPdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosdPdTofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 

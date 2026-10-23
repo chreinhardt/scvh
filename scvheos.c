@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2020 Christian Reinhardt
  *
- * This file proves an interface for the SCvH equation of state (Saumon et al. 1995) for Hydrogen
+ * This file provides an interface for the SCvH equation of state (Saumon et al. 1995) for Hydrogen
  * and Helium that was extended to lower temperatures by Vazan et al. (2013).
  *
  * Author:   Christian Reinhardt
@@ -173,6 +173,35 @@ static double scvheosCellValue(const double *Array, int nT, int j, int i, double
     const double *c0 = Array + (size_t)j*nT + i;
     const double *c1 = c0 + nT;
     return (1.0 - w)*((1.0 - v)*c0[0] + v*c0[1]) + w*((1.0 - v)*c1[0] + v*c1[1]);
+}
+
+/*
+ * Partial derivative of one table on the bilinear patch (j, i) at (w, t),
+ * with respect to logrho (bWrtRho = TRUE) or logT (bWrtRho = FALSE).
+ * On a bilinear patch the derivative along one axis is linear in the other
+ * coordinate and jumps at the cell boundaries; it is the derivative
+ * gsl_interp2d_eval_deriv_* would return, without the accelerator lookups.
+ */
+static double scvheosCellPartial(const SCVHEOSMAT *Mat, const double *Array, int j, int i,
+                                 double w, double t, int bWrtRho) {
+    const int nT = Mat->nT;
+    const double *A0 = Array + (size_t)j*nT + i, *A1 = A0 + nT;
+
+    if (bWrtRho) {
+        return ((1.0 - t)*(A1[0] - A0[0]) + t*(A1[1] - A0[1]))/(Mat->dLogRhoAxis[j+1] - Mat->dLogRhoAxis[j]);
+    }
+    return ((1.0 - w)*(A0[1] - A0[0]) + w*(A1[1] - A1[0]))/(Mat->dLogTAxis[i+1] - Mat->dLogTAxis[i]);
+}
+
+/*
+ * The four partials of logP and logu on the patch, for the (rho, u) derivatives.
+ */
+static void scvheosCellPartials(const SCVHEOSMAT *Mat, int j, int i, double w, double t,
+                                double *dlPdlr, double *dlPdlT, double *dludlr, double *dludlT) {
+    *dlPdlr = scvheosCellPartial(Mat, Mat->dLogPArray, j, i, w, t, TRUE);
+    *dlPdlT = scvheosCellPartial(Mat, Mat->dLogPArray, j, i, w, t, FALSE);
+    *dludlr = scvheosCellPartial(Mat, Mat->dLogUArray, j, i, w, t, TRUE);
+    *dludlT = scvheosCellPartial(Mat, Mat->dLogUArray, j, i, w, t, FALSE);
 }
 
 /*
@@ -1246,212 +1275,165 @@ double scvheosRhoofPT(SCVHEOSMAT *Mat, double P, double T) {
 
 /*
  * Partial derivatives of the tabulated log quantities with respect to logrho
- * (bWrtRho = TRUE) or logT (bWrtRho = FALSE), from the GSL interpolator.
- *
- * The derivative is only defined inside the table. The extrapolation limits
- * LogRhoMin/Max and LogTMin/Max coincide with the table bounds, so the
- * previous finite-difference fallback for the extrapolated region was dead
- * code (and used a step proportional to logrho/logT, which vanishes at
- * logrho = 0 or logT = 0). If extrapolation is ever re-enabled a fallback
- * with an absolute step in log space (a fraction of the grid spacing) has
- * to be added here, since GSL has no extrapolating derivative.
- *
- * With bilinear interpolation the derivative is piecewise constant and
- * jumps at the cell boundaries; at a node GSL evaluates the cell to the
- * right/above (the last cell at the upper table edge).
+ * (bWrtRho = TRUE) or logT (bWrtRho = FALSE), evaluated on the bilinear
+ * patch that contains (logrho, logT). Only defined inside the table: the
+ * lookup limits are the table bounds and the bilinear patch has no
+ * extrapolation. At a node the cell to the right/above is used (the last
+ * cell at the upper table edge), the convention scvheosFindCell and GSL share.
  */
-static double scvheosdLogdLog(SCVHEOSMAT *Mat, const gsl_interp2d *Interp, const double *Array,
-                              gsl_interp_accel *xAcc, gsl_interp_accel *yAcc,
+static double scvheosdLogdLog(SCVHEOSMAT *Mat, const double *Array,
                               double logrho, double logT, int bWrtRho, const char *chFunc) {
-    double dLogdLog;
-    int status;
+    double w, t;
+    int j, i;
 
     if (!scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
 	    fprintf(stderr, "%s: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", chFunc, logrho, logT);
         exit(1);
     }
 
-    /* x corresponds to T and y to rho. */
-    if (bWrtRho) {
-        status = gsl_interp2d_eval_deriv_y_e(Interp, Mat->dLogTAxis, Mat->dLogRhoAxis, Array,
-                                             logT, logrho, xAcc, yAcc, &dLogdLog);
-    } else {
-        status = gsl_interp2d_eval_deriv_x_e(Interp, Mat->dLogTAxis, Mat->dLogRhoAxis, Array,
-                                             logT, logrho, xAcc, yAcc, &dLogdLog);
-    }
+    j = scvheosFindCell(Mat->dLogRhoAxis, Mat->nRho, logrho, &w);
+    i = scvheosFindCell(Mat->dLogTAxis, Mat->nT, logT, &t);
 
-    if (status != GSL_SUCCESS) {
-        fprintf(stderr, "%s: Interpolation failed (logrho= %15.7E logT= %15.7E).\n", chFunc, logrho, logT);
-        exit(1);
-    }
-
-    return dLogdLog;
+    return scvheosCellPartial(Mat, Array, j, i, w, t, bWrtRho);
 }
 
 /*
  * Calculate the derivative dlogP/dlogrho(logrho, logT).
  */
 double scvheosdLogPdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    return scvheosdLogdLog(Mat, Mat->InterpLogP, Mat->dLogPArray, Mat->xAcc, Mat->yAcc,
-                           logrho, logT, TRUE, __func__);
+    return scvheosdLogdLog(Mat, Mat->dLogPArray, logrho, logT, TRUE, __func__);
 }
 
 /*
  * Calculate the derivative dlogP/dlogT(logrho, logT).
  */
 double scvheosdLogPdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    return scvheosdLogdLog(Mat, Mat->InterpLogP, Mat->dLogPArray, Mat->xAcc, Mat->yAcc,
-                           logrho, logT, FALSE, __func__);
+    return scvheosdLogdLog(Mat, Mat->dLogPArray, logrho, logT, FALSE, __func__);
 }
 
 /*
  * Calculate the derivative dlogu/dlogrho(logrho, logT).
  */
 double scvheosdLogUdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    return scvheosdLogdLog(Mat, Mat->InterpLogU, Mat->dLogUArray, Mat->xAcc, Mat->yAcc,
-                           logrho, logT, TRUE, __func__);
+    return scvheosdLogdLog(Mat, Mat->dLogUArray, logrho, logT, TRUE, __func__);
 }
 
 /*
  * Calculate the derivative dlogu/dlogT(logrho, logT).
  */
 double scvheosdLogUdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    return scvheosdLogdLog(Mat, Mat->InterpLogU, Mat->dLogUArray, Mat->xAcc, Mat->yAcc,
-                           logrho, logT, FALSE, __func__);
+    return scvheosdLogdLog(Mat, Mat->dLogUArray, logrho, logT, FALSE, __func__);
 }
 
 /*
  * Calculate the derivative dlogs/dlogrho(logrho, logT).
  */
 double scvheosdLogSdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    return scvheosdLogdLog(Mat, Mat->InterpLogS, Mat->dLogSArray, Mat->xAcc, Mat->yAcc,
-                           logrho, logT, TRUE, __func__);
+    return scvheosdLogdLog(Mat, Mat->dLogSArray, logrho, logT, TRUE, __func__);
 }
 
 /*
  * Calculate the derivative dlogs/dlogT(logrho, logT).
  */
 double scvheosdLogSdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    return scvheosdLogdLog(Mat, Mat->InterpLogS, Mat->dLogSArray, Mat->xAcc, Mat->yAcc,
-                           logrho, logT, FALSE, __func__);
+    return scvheosdLogdLog(Mat, Mat->dLogSArray, logrho, logT, FALSE, __func__);
 }
 
 /*
- * Calculate the derivative dP/drho(rho, T).
+ * Locate (rho, T) in the table for the (rho, T) derivatives. Returns 0, or
+ * -1 after a message if the state is not finite or outside the table.
+ */
+static int scvheosLocateRhoT(SCVHEOSMAT *Mat, const char *chFunc, double rho, double T,
+                             int *pj, int *pi, double *pw, double *pt) {
+    double logrho, logT;
+
+    if (!(rho > 0.0) || !(T > 0.0) || !isfinite(rho) || !isfinite(T)) {
+        fprintf(stderr, "%s: invalid input rho= %g T= %g.\n", chFunc, rho, T);
+        return -1;
+    }
+    logrho = log10(rho);
+    logT = log10(T);
+    if (!scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
+        fprintf(stderr, "%s: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", chFunc, logrho, logT);
+        return -1;
+    }
+    *pj = scvheosFindCell(Mat->dLogRhoAxis, Mat->nRho, logrho, pw);
+    *pi = scvheosFindCell(Mat->dLogTAxis, Mat->nT, logT, pt);
+    return 0;
+}
+
+/*
+ * Calculate the derivative dP/drho(rho, T) = (P/rho) dlogP/dlogrho on the
+ * bilinear patch. Returns SCVHEOS_FAIL_VALUE (or exits) outside the table.
  */
 double scvheosdPdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
-    double logrho;
-    double logT;
-    double P;
-    double dLogPdLogRho;
-    
-    logrho = log10(rho);
-    logT = log10(T);
+    double w, t;
+    int j, i;
 
-    // CR: Here it is probably a bit more efficient if we calculate P=10**log(P)
-    P = scvheosPofRhoT(Mat, rho, T);
-    dLogPdLogRho = scvheosdLogPdLogRhoofLogRhoLogT(Mat, logrho, logT);
-    
-    /* dP/dx = P/x*dln(P)/dln(rho). */
-    return P/rho*dLogPdLogRho;
+    if (scvheosLocateRhoT(Mat, __func__, rho, T, &j, &i, &w, &t) != 0) SCVHEOS_FAIL_OR_EXIT();
+    return scvheosExp10(scvheosCellValue(Mat->dLogPArray, Mat->nT, j, i, w, t))/rho
+           *scvheosCellPartial(Mat, Mat->dLogPArray, j, i, w, t, TRUE);
 }
 
 /*
- * Calculate the derivative dP/dT(rho, T).
+ * Calculate the derivative dP/dT(rho, T) = (P/T) dlogP/dlogT.
  */
 double scvheosdPdTofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
-    double logrho;
-    double logT;
-    double P;
-    double dLogPdLogT;
-    
-    logrho = log10(rho);
-    logT = log10(T);
+    double w, t;
+    int j, i;
 
-    P = scvheosPofRhoT(Mat, rho, T);
-    dLogPdLogT = scvheosdLogPdLogTofLogRhoLogT(Mat, logrho, logT);
-    
-    return P/T*dLogPdLogT;
+    if (scvheosLocateRhoT(Mat, __func__, rho, T, &j, &i, &w, &t) != 0) SCVHEOS_FAIL_OR_EXIT();
+    return scvheosExp10(scvheosCellValue(Mat->dLogPArray, Mat->nT, j, i, w, t))/T
+           *scvheosCellPartial(Mat, Mat->dLogPArray, j, i, w, t, FALSE);
 }
 
 /*
- * Calculate the derivative du/drho(rho, T).
+ * Calculate the derivative du/drho(rho, T) = (u/rho) dlogu/dlogrho.
  */
 double scvheosdUdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
-    double logrho;
-    double logT;
-    double u;
-    double dLogUdLogRho;
-    
-    logrho = log10(rho);
-    logT = log10(T);
+    double w, t;
+    int j, i;
 
-    u = scvheosUofRhoT(Mat, rho, T);
-    dLogUdLogRho = scvheosdLogUdLogRhoofLogRhoLogT(Mat, logrho, logT);
-    
-    return u/rho*dLogUdLogRho;
+    if (scvheosLocateRhoT(Mat, __func__, rho, T, &j, &i, &w, &t) != 0) SCVHEOS_FAIL_OR_EXIT();
+    return scvheosExp10(scvheosCellValue(Mat->dLogUArray, Mat->nT, j, i, w, t))/rho
+           *scvheosCellPartial(Mat, Mat->dLogUArray, j, i, w, t, TRUE);
 }
 
 /*
- * Calculate the derivative du/dT(rho, T).
+ * Calculate the derivative du/dT(rho, T) = (u/T) dlogu/dlogT, the specific
+ * heat capacity at constant volume.
  */
 double scvheosdUdTofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
-    double logrho;
-    double logT;
-    double u;
-    double dLogUdLogT;
-    
-    logrho = log10(rho);
-    logT = log10(T);
+    double w, t;
+    int j, i;
 
-    u = scvheosUofRhoT(Mat, rho, T);
-    dLogUdLogT = scvheosdLogUdLogTofLogRhoLogT(Mat, logrho, logT);
-    
-    return u/T*dLogUdLogT;
+    if (scvheosLocateRhoT(Mat, __func__, rho, T, &j, &i, &w, &t) != 0) SCVHEOS_FAIL_OR_EXIT();
+    return scvheosExp10(scvheosCellValue(Mat->dLogUArray, Mat->nT, j, i, w, t))/T
+           *scvheosCellPartial(Mat, Mat->dLogUArray, j, i, w, t, FALSE);
 }
 
 /*
- * Calculate the derivative dSdRho(rho, T).
+ * Calculate the derivative ds/drho(rho, T) = (s/rho) dlogs/dlogrho (s in cgs).
  */
 double scvheosdSdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
-    /* Finite difference. */
-    double h = 1e-5*rho;
-    double dSdRho;
+    double w, t;
+    int j, i;
 
-    dSdRho = (scvheosSofRhoT(Mat, rho+h, T)-scvheosSofRhoT(Mat, rho-h, T))/(2.0*h);
-    return dSdRho;
+    if (scvheosLocateRhoT(Mat, __func__, rho, T, &j, &i, &w, &t) != 0) SCVHEOS_FAIL_OR_EXIT();
+    return scvheosExp10(scvheosCellValue(Mat->dLogSArray, Mat->nT, j, i, w, t))/rho
+           *scvheosCellPartial(Mat, Mat->dLogSArray, j, i, w, t, TRUE);
 }
+
 /*
- * Calculate the derivative dSdT(rho, T).
+ * Calculate the derivative ds/dT(rho, T) = (s/T) dlogs/dlogT (s in cgs).
  */
 double scvheosdSdTofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
-    /* Finite difference. */
-    double h = 1e-5*T;
-    double dSdT;
+    double w, t;
+    int j, i;
 
-    dSdT = (scvheosSofRhoT(Mat, rho, T+h)-scvheosSofRhoT(Mat, rho, T-h))/(2.0*h);
-    return dSdT;
-}
-
-/*
- * Partial derivatives of the bilinear patch (j, i) at (w, t):
- * dlogP/dlogrho|T, dlogP/dlogT|rho, dlogu/dlogrho|T, dlogu/dlogT|rho.
- * On a bilinear patch the derivative along one axis is linear in the other
- * coordinate and jumps at the cell boundaries; this is the same derivative
- * gsl_interp2d_eval_deriv_* returns, without the accelerator lookups.
- */
-static void scvheosCellPartials(const SCVHEOSMAT *Mat, int j, int i, double w, double t,
-                                double *dlPdlr, double *dlPdlT, double *dludlr, double *dludlT) {
-    const int nT = Mat->nT;
-    const double dlr = Mat->dLogRhoAxis[j+1] - Mat->dLogRhoAxis[j];
-    const double dlT = Mat->dLogTAxis[i+1] - Mat->dLogTAxis[i];
-    const double *P0 = Mat->dLogPArray + (size_t)j*nT + i, *P1 = P0 + nT;
-    const double *U0 = Mat->dLogUArray + (size_t)j*nT + i, *U1 = U0 + nT;
-
-    *dlPdlr = ((1.0 - t)*(P1[0] - P0[0]) + t*(P1[1] - P0[1]))/dlr;
-    *dlPdlT = ((1.0 - w)*(P0[1] - P0[0]) + w*(P1[1] - P1[0]))/dlT;
-    *dludlr = ((1.0 - t)*(U1[0] - U0[0]) + t*(U1[1] - U0[1]))/dlr;
-    *dludlT = ((1.0 - w)*(U0[1] - U0[0]) + w*(U1[1] - U1[0]))/dlT;
+    if (scvheosLocateRhoT(Mat, __func__, rho, T, &j, &i, &w, &t) != 0) SCVHEOS_FAIL_OR_EXIT();
+    return scvheosExp10(scvheosCellValue(Mat->dLogSArray, Mat->nT, j, i, w, t))/T
+           *scvheosCellPartial(Mat, Mat->dLogSArray, j, i, w, t, FALSE);
 }
 
 /*
