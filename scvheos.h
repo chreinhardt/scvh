@@ -60,10 +60,15 @@
 #define SCVHEOS_OUTSIDE_TMAX   -4
 
 /*
- * Define TRUE and FALSE.
+ * TRUE and FALSE. Other EOS headers (reos3.h) define them too, so only
+ * define them if nobody else has; the values must be 1 and 0 everywhere.
  */
+#ifndef FALSE
 #define FALSE 0
+#endif
+#ifndef TRUE
 #define TRUE  1
+#endif
 
 typedef struct scvheosMat {
     int iMat;
