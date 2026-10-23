@@ -6,15 +6,18 @@
  *
  * Author:   Christian Reinhardt
  * Created:  02.04.2020
- * Modified: 16.04.2023
+ * Modified: 23.10.2026
  */
+
+/* getline() is POSIX.1-2008; declare it under -std=c99 too. */
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
 #include <gsl/gsl_errno.h>
-#include <gsl/gsl_math.h>
 #include <gsl/gsl_interp2d.h>
 #include "scvheos.h"
 
@@ -24,7 +27,8 @@
  * cheaper than pow(10, x) and accurate to an ulp or two.
  */
 static double scvheosExp10(double x) {
-    return exp(x*M_LN10);
+    const double LN10 = 2.302585092994045684;   /* M_LN10 is not ISO C */
+    return exp(x*LN10);
 }
 
 /*
@@ -214,20 +218,15 @@ static void scvheosCheckMonotonic(SCVHEOSMAT *Mat) {
  * Initialize the material data, read the EOS tables and convert them to code units if desired.
  */
 SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
-    const double KBOLTZ = 1.38e-16;      /* bolzman constant in cgs */
-    const double MHYDR = 1.67e-24;       /* mass of hydrogen atom in grams */
+    /* Gasoline/pkdgrav3 unit constants. Must match the hydro code and the other EOS libraries exactly. */
     const double MSOLG = 1.99e33;        /* solar mass in grams */
     const double GCGS = 6.67e-8;         /* G in cgs */
     const double KPCCM = 3.085678e21;    /* kiloparsec in centimeters */
-    const double NA = 6.022e23;          /* Avogadro's number */
     SCVHEOSMAT *Mat;
     int nRho;
     int nT;
     char inFile[256];
     int nSkip;
-    /* GSL interpolator type */
-    const gsl_interp2d_type *InterpType;
-    int bInterpBilinear = 1;
 
     /* 
      * Allocate memory and initialize the data.
@@ -364,33 +363,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
         exit(1);
     }
 
-    /* Define limits of the table (or extrapolation). */
-#if 0
-    Mat->LogRhoMin = -25.0;
-    Mat->LogRhoMax = 3.0;
-    Mat->LogTMin = -2;
-    Mat->LogTMax = 6;
-#endif
-#if 0
-    //Mat->LogRhoMin = -10.5;
-    Mat->LogRhoMin = -18.0;
-    Mat->LogRhoMax = -0.9;
-    Mat->LogTMin = -2.0;
-    Mat->LogTMax = 4.7;
-#endif
-#if 0
-    Mat->LogRhoMin = Mat->dLogRhoAxis[0];
-    Mat->LogRhoMax = Mat->dLogRhoAxis[Mat->nRho-1];
-    Mat->LogTMin = Mat->dLogTAxis[0];
-    //Mat->LogTMax = Mat->dLogTAxis[Mat->nT-1];
-    Mat->LogTMax = 3.6;
-#endif
-#if 0
-    Mat->LogRhoMin = -25.0;
-    Mat->LogRhoMax = 1.0;
-    Mat->LogTMin = -1;
-    Mat->LogTMax = 4;
-#endif
+    /* The lookup limits are the table bounds; no extrapolation. */
     Mat->LogRhoMin = Mat->dLogRhoAxis[0];
     Mat->LogRhoMax = Mat->dLogRhoAxis[Mat->nRho-1];
     Mat->LogTMin = Mat->dLogTAxis[0];
@@ -418,14 +391,10 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
      * Convert from cgs to code units.
      */
     if ((Mat->dKpcUnit > 0.0) && (Mat->dMsolUnit > 0.0)) {
-        Mat->dGasConst = Mat->dKpcUnit*KPCCM*KBOLTZ
-            /MHYDR/GCGS/Mat->dMsolUnit/MSOLG;
         /* code energy per unit mass --> erg per g */
         Mat->dErgPerGmUnit = GCGS*Mat->dMsolUnit*MSOLG/(Mat->dKpcUnit*KPCCM);
         /* code density --> g per cc */
         Mat->dGmPerCcUnit = (Mat->dMsolUnit*MSOLG)/pow(Mat->dKpcUnit*KPCCM,3.0);
-        /* code time --> seconds */
-        Mat->dSecUnit = sqrt(1/(Mat->dGmPerCcUnit*GCGS));
 
         for (int i=0; i<Mat->nRho; i++) {
             Mat->dLogRhoAxis[i] -= log10(Mat->dGmPerCcUnit);
@@ -449,21 +418,19 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
         Mat->LogRhoMax -= log10(Mat->dGmPerCcUnit);
         Mat->rho0 /= Mat->dGmPerCcUnit;
     } else {
-        /* Prevent problems if dKpcUnit or dMsolUnit are not set. */
-        Mat->dGasConst = 0.0;
+        /* No unit system given: everything stays in cgs. */
         Mat->dErgPerGmUnit = 1.0;
         Mat->dGmPerCcUnit = 1.0;
-        Mat->dSecUnit = 1.0;
     }
 
     /*
-     * Initialize the GSL interpolator.
+     * Initialize the GSL interpolator. Bilinear is not a choice: the direct
+     * inversions (scvheosInvertColumn), the cell evaluation
+     * (scvheosCellValue) and the analytic derivatives (scvheosCellPartials)
+     * are written for the bilinear patch and would silently disagree with a
+     * bicubic interpolant.
      */
-    if (bInterpBilinear) {
-        InterpType = gsl_interp2d_bilinear;
-    } else {
-        InterpType = gsl_interp2d_bicubic;
-    }
+    const gsl_interp2d_type *InterpType = gsl_interp2d_bilinear;
 
     /* One accelerator pair serves all four tables: they share the axes. */
     Mat->xAcc = gsl_interp_accel_alloc();
@@ -532,7 +499,7 @@ int scvheosFinalizeMaterial(SCVHEOSMAT *Mat) {
  * He:   nRho = 201, nT = 100, logarithmic spacing (base 10)
  * H/He: nRho = 201, nT = 100, logarithmic spacing (base 10)
  */
-int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT, int nSkip) {
+int scvheosReadTable(SCVHEOSMAT *Mat, const char *chInFile, int nRho, int nT, int nSkip) {
     FILE *fp = NULL;
     char *chLine = NULL;
     size_t nCharMax = 256;

@@ -3,7 +3,7 @@
  *
  * Author:   Christian Reinhardt
  * Created:  02.04.2020
- * Modified: 05.04.2020
+ * Modified: 23.10.2026
  */
 #ifndef SCVHEOS_HINCLUDED
 #define SCVHEOS_HINCLUDED
@@ -112,13 +112,10 @@ typedef struct scvheosMat {
     /* Convert units to code units. */
     double dKpcUnit;
     double dMsolUnit;
-    double dGasConst;
-	double dErgPerGmUnit;
-	double dGmPerCcUnit;
-	double dSecUnit;
+    double dErgPerGmUnit;
+    double dGmPerCcUnit;
 
-    /* GSL 2D interpolator */
-    const gsl_interp2d_type *InterpType;
+    /* GSL 2D interpolators (bilinear; see scvheosInitMaterial). */
     gsl_interp2d *InterpLogP;
     gsl_interp2d *InterpLogU;
     gsl_interp2d *InterpLogS;
@@ -147,7 +144,7 @@ typedef struct scvheosMat {
 /* Functions to initialize and finalize materials. */
 SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit);
 int scvheosFinalizeMaterial(SCVHEOSMAT *Mat);
-int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile, int nRho, int nT, int nSkip);
+int scvheosReadTable(SCVHEOSMAT *Mat, const char *chInFile, int nRho, int nT, int nSkip);
 int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat);
 
 /* Calculate EOS values. */
