@@ -1097,249 +1097,95 @@ double scvheosRhoofPT(SCVHEOSMAT *Mat, double P, double T) {
 }
 
 /*
- * Calculate the derivative dlogP/dlogrho(logrho, logT).
+ * Partial derivatives of the tabulated log quantities with respect to logrho
+ * (bWrtRho = TRUE) or logT (bWrtRho = FALSE), from the GSL interpolator.
+ *
+ * The derivative is only defined inside the table. The extrapolation limits
+ * LogRhoMin/Max and LogTMin/Max coincide with the table bounds, so the
+ * previous finite-difference fallback for the extrapolated region was dead
+ * code (and used a step proportional to logrho/logT, which vanishes at
+ * logrho = 0 or logT = 0). If extrapolation is ever re-enabled a fallback
+ * with an absolute step in log space (a fraction of the grid spacing) has
+ * to be added here, since GSL has no extrapolating derivative.
+ *
+ * With bilinear interpolation the derivative is piecewise constant and
+ * jumps at the cell boundaries; at a node GSL evaluates the cell to the
+ * right/above (the last cell at the upper table edge).
  */
-double scvheosdLogPdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    /* Finite difference. */
-    double h = 1e-5*logrho;
-    double dLogPdLogRho;
+static double scvheosdLogdLog(SCVHEOSMAT *Mat, const gsl_interp2d *Interp, const double *Array,
+                              gsl_interp_accel *xAcc, gsl_interp_accel *yAcc,
+                              double logrho, double logT, int bWrtRho, const char *chFunc) {
+    double dLogdLog;
+    int status;
 
-    if (!scvheosCheckBoundsLogRhoLogT(Mat, logrho, logT)) {
-	    fprintf(stderr, "scvheosdLogPdLogRhoofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
+    if (!scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
+	    fprintf(stderr, "%s: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", chFunc, logrho, logT);
         exit(1);
     }
 
-    /* If (rho, T) is inside of the EOS table use GSL. */
-    if (scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
-        if (gsl_interp2d_eval_deriv_y_e(Mat->InterpLogP, Mat->dLogTAxis, Mat->dLogRhoAxis,
-            Mat->dLogPArray, logT, logrho, Mat->xAccP, Mat->yAccP, &dLogPdLogRho) == GSL_EDOM) {
-            fprintf(stderr, "scvheosdLogPdLogRhoofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-            exit(1);
-        }
-        return dLogPdLogRho;
-    }
-    
-    if ((logrho-h > Mat->LogRhoMin) && (logrho+h < Mat->LogRhoMax)) {
-        /* Central difference. */
-        dLogPdLogRho = (scvheosLogPofLogRhoLogT(Mat, logrho+h, logT)-scvheosLogPofLogRhoLogT(Mat, logrho-h, logT))/(2.0*h);
-    } else if (logrho-h > Mat->LogRhoMin) {
-        /* Backward finite difference. */
-        dLogPdLogRho = (scvheosLogPofLogRhoLogT(Mat, logrho, logT) - scvheosLogPofLogRhoLogT(Mat, logrho-h, logT))/h;
-    } else if (logrho+h < Mat->LogRhoMax) {
-        /* Forward finite difference. */
-        dLogPdLogRho = (scvheosLogPofLogRhoLogT(Mat, logrho+h, logT) - scvheosLogPofLogRhoLogT(Mat, logrho, logT))/h;
+    /* x corresponds to T and y to rho. */
+    if (bWrtRho) {
+        status = gsl_interp2d_eval_deriv_y_e(Interp, Mat->dLogTAxis, Mat->dLogRhoAxis, Array,
+                                             logT, logrho, xAcc, yAcc, &dLogdLog);
     } else {
-        /* Both points are problematic so h is reduced. */
-        h *= 1e-4;
-        dLogPdLogRho = (scvheosLogPofLogRhoLogT(Mat, logrho+h, logT) - scvheosLogPofLogRhoLogT(Mat, logrho-h, logT))/(2.0*h);
+        status = gsl_interp2d_eval_deriv_x_e(Interp, Mat->dLogTAxis, Mat->dLogRhoAxis, Array,
+                                             logT, logrho, xAcc, yAcc, &dLogdLog);
     }
 
-    return dLogPdLogRho;
+    if (status != GSL_SUCCESS) {
+        fprintf(stderr, "%s: Interpolation failed (logrho= %15.7E logT= %15.7E).\n", chFunc, logrho, logT);
+        exit(1);
+    }
+
+    return dLogdLog;
+}
+
+/*
+ * Calculate the derivative dlogP/dlogrho(logrho, logT).
+ */
+double scvheosdLogPdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
+    return scvheosdLogdLog(Mat, Mat->InterpLogP, Mat->dLogPArray, Mat->xAccP, Mat->yAccP,
+                           logrho, logT, TRUE, __func__);
 }
 
 /*
  * Calculate the derivative dlogP/dlogT(logrho, logT).
  */
 double scvheosdLogPdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    /* Finite difference. */
-    double h = 1e-5*logT;
-    double dLogPdLogT;
-
-    if (!scvheosCheckBoundsLogRhoLogT(Mat, logrho, logT)) {
-	    fprintf(stderr, "scvheosdLogPdLogTofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-        exit(1);
-    }
-
-    /* If (rho, T) is inside of the EOS table use GSL. */
-    if (scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
-        if (gsl_interp2d_eval_deriv_x_e(Mat->InterpLogP, Mat->dLogTAxis, Mat->dLogRhoAxis,
-            Mat->dLogPArray, logT, logrho, Mat->xAccP, Mat->yAccP, &dLogPdLogT) == GSL_EDOM) {
-            fprintf(stderr, "scvheosdLogPdLogTofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-            exit(1);
-        }
-        return dLogPdLogT;
-    }
-
-    if ((logT-h > Mat->LogTMin) && (logT+h < Mat->LogTMax)) {
-        /* Central difference. */
-        dLogPdLogT = (scvheosLogPofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogPofLogRhoLogT(Mat, logrho, logT-h))/(2.0*h);
-    } else if (logT-h > Mat->LogTMin) {
-        /* Backward finite difference. */
-        dLogPdLogT = (scvheosLogPofLogRhoLogT(Mat, logrho, logT)-scvheosLogPofLogRhoLogT(Mat, logrho, logT-h))/h;
-    } else if (logT+h < Mat->LogTMax) {
-        /* Forward finite difference. */
-        dLogPdLogT = (scvheosLogPofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogPofLogRhoLogT(Mat, logrho, logT))/h;
-    } else {
-        /* Both points are problematic so h is reduced. */
-        h *= 1e-4;
-        dLogPdLogT = (scvheosLogPofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogPofLogRhoLogT(Mat, logrho, logT-h))/(2.0*h);
-    }
-
-    return dLogPdLogT;
+    return scvheosdLogdLog(Mat, Mat->InterpLogP, Mat->dLogPArray, Mat->xAccP, Mat->yAccP,
+                           logrho, logT, FALSE, __func__);
 }
 
 /*
  * Calculate the derivative dlogu/dlogrho(logrho, logT).
  */
 double scvheosdLogUdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    /* Finite difference. */
-    double h = 1e-5*logrho;
-    double dLogUdLogRho;
-
-    if (!scvheosCheckBoundsLogRhoLogT(Mat, logrho, logT)) {
-	    fprintf(stderr, "scvheosdLogUdLogRhoofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-        exit(1);
-    }
-
-    /* If (rho, T) is inside of the EOS table use GSL. */
-    if (scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
-        if (gsl_interp2d_eval_deriv_y_e(Mat->InterpLogU, Mat->dLogTAxis, Mat->dLogRhoAxis,
-            Mat->dLogUArray, logT, logrho, Mat->xAccU, Mat->yAccU, &dLogUdLogRho) == GSL_EDOM) {
-            fprintf(stderr, "scvheosdLogUdLogRhoofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-            exit(1);
-        }
-        return dLogUdLogRho;
-    }
-    
-    if ((logrho-h > Mat->LogRhoMin) && (logrho+h < Mat->LogRhoMax)) {
-        /* Central difference. */
-        dLogUdLogRho = (scvheosLogUofLogRhoLogT(Mat, logrho+h, logT)-scvheosLogUofLogRhoLogT(Mat, logrho-h, logT))/(2.0*h);
-    } else if (logrho-h > Mat->LogRhoMin) {
-        /* Backward finite difference. */
-        dLogUdLogRho = (scvheosLogUofLogRhoLogT(Mat, logrho, logT)-scvheosLogUofLogRhoLogT(Mat, logrho-h, logT))/h;
-    } else if (logrho+h < Mat->LogRhoMax) {
-        /* Forward finite difference. */
-        dLogUdLogRho = (scvheosLogUofLogRhoLogT(Mat, logrho+h, logT)-scvheosLogUofLogRhoLogT(Mat, logrho, logT))/h;
-    } else {
-        /* Both points are problematic so h is reduced. */
-        h *= 1e-4;
-        dLogUdLogRho = (scvheosLogUofLogRhoLogT(Mat, logrho+h, logT)-scvheosLogUofLogRhoLogT(Mat, logrho-h, logT))/(2.0*h);
-    }
-
-    return dLogUdLogRho;
+    return scvheosdLogdLog(Mat, Mat->InterpLogU, Mat->dLogUArray, Mat->xAccU, Mat->yAccU,
+                           logrho, logT, TRUE, __func__);
 }
 
 /*
  * Calculate the derivative dlogu/dlogT(logrho, logT).
  */
 double scvheosdLogUdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    /* Finite difference. */
-    double h = 1e-5*logT;
-    double dLogUdLogT;
-
-    if (!scvheosCheckBoundsLogRhoLogT(Mat, logrho, logT)) {
-	    fprintf(stderr, "scvheosdLogUdLogTofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-        exit(1);
-    }
-
-    /* If (rho, T) is inside of the EOS table use GSL. */
-    if (scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
-        if (gsl_interp2d_eval_deriv_x_e(Mat->InterpLogU, Mat->dLogTAxis, Mat->dLogRhoAxis,
-            Mat->dLogUArray, logT, logrho, Mat->xAccU, Mat->yAccU, &dLogUdLogT) == GSL_EDOM) {
-            fprintf(stderr, "scvheosdLogUdLogTofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-            exit(1);
-        }
-        return dLogUdLogT;
-    }
-
-    if ((logT-h > Mat->LogTMin) && (logT+h < Mat->LogTMax)) {
-        /* Central difference. */
-        dLogUdLogT = (scvheosLogUofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogUofLogRhoLogT(Mat, logrho, logT-h))/(2.0*h);
-    } else if (logT-h > Mat->LogTMin) {
-        /* Backward finite difference. */
-        dLogUdLogT = (scvheosLogUofLogRhoLogT(Mat, logrho, logT)-scvheosLogUofLogRhoLogT(Mat, logrho, logT-h))/h;
-    } else if (logT+h < Mat->LogTMax) {
-        /* Forward finite difference. */
-        dLogUdLogT = (scvheosLogUofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogUofLogRhoLogT(Mat, logrho, logT))/h;
-    } else {
-        /* Both points are problematic so h is reduced. */
-        h *= 1e-4;
-        dLogUdLogT = (scvheosLogUofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogUofLogRhoLogT(Mat, logrho, logT-h))/(2.0*h);
-    }
-
-    return dLogUdLogT;
+    return scvheosdLogdLog(Mat, Mat->InterpLogU, Mat->dLogUArray, Mat->xAccU, Mat->yAccU,
+                           logrho, logT, FALSE, __func__);
 }
 
 /*
  * Calculate the derivative dlogs/dlogrho(logrho, logT).
  */
 double scvheosdLogSdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    /* Finite difference. */
-    double h = 1e-5*logrho;
-    double dLogSdLogRho;
-
-    if (!scvheosCheckBoundsLogRhoLogT(Mat, logrho, logT)) {
-	    fprintf(stderr, "scvheosdLogSdLogRhoofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-        exit(1);
-    }
-
-    /* If (rho, T) is inside of the EOS table use GSL. */
-    if (scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
-        if (gsl_interp2d_eval_deriv_y_e(Mat->InterpLogS, Mat->dLogTAxis, Mat->dLogRhoAxis,
-            Mat->dLogSArray, logT, logrho, Mat->xAccS, Mat->yAccS, &dLogSdLogRho) == GSL_EDOM) {
-            fprintf(stderr, "scvheosdLogSdLogRhoofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-            exit(1);
-        }
-        return dLogSdLogRho;
-    }
-
-    if ((logrho-h > Mat->LogRhoMin) && (logrho+h < Mat->LogRhoMax)) {
-        /* Central difference. */
-        dLogSdLogRho = (scvheosLogSofLogRhoLogT(Mat, logrho+h, logT)-scvheosLogSofLogRhoLogT(Mat, logrho-h, logT))/(2.0*h);
-    } else if (logrho-h > Mat->LogRhoMin) {
-        /* Backward finite difference. */
-        dLogSdLogRho = (scvheosLogSofLogRhoLogT(Mat, logrho, logT) - scvheosLogSofLogRhoLogT(Mat, logrho-h, logT))/h;
-    } else if (logrho+h < Mat->LogRhoMax) {
-        /* Forward finite difference. */
-        dLogSdLogRho = (scvheosLogSofLogRhoLogT(Mat, logrho+h, logT) - scvheosLogSofLogRhoLogT(Mat, logrho, logT))/h;
-    } else {
-        /* Both points are problematic so h is reduced. */
-        h *= 1e-4;
-        dLogSdLogRho = (scvheosLogSofLogRhoLogT(Mat, logrho+h, logT) - scvheosLogSofLogRhoLogT(Mat, logrho-h, logT))/(2.0*h);
-    }
-
-    return dLogSdLogRho;
+    return scvheosdLogdLog(Mat, Mat->InterpLogS, Mat->dLogSArray, Mat->xAccS, Mat->yAccS,
+                           logrho, logT, TRUE, __func__);
 }
 
 /*
  * Calculate the derivative dlogs/dlogT(logrho, logT).
  */
 double scvheosdLogSdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    /* Finite difference. */
-    double h = 1e-5*logT;
-    double dLogSdLogT;
-
-    if (!scvheosCheckBoundsLogRhoLogT(Mat, logrho, logT)) {
-	    fprintf(stderr, "scvheosdLogSdLogTofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-        exit(1);
-    }
-
-    /* If (rho, T) is inside of the EOS table use GSL. */
-    if (scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
-        if (gsl_interp2d_eval_deriv_x_e(Mat->InterpLogS, Mat->dLogTAxis, Mat->dLogRhoAxis,
-            Mat->dLogSArray, logT, logrho, Mat->xAccS, Mat->yAccS, &dLogSdLogT) == GSL_EDOM) {
-            fprintf(stderr, "scvheosdLogSdLogTofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-            exit(1);
-        }
-        return dLogSdLogT;
-    }
-
-    if ((logT-h > Mat->LogTMin) && (logT+h < Mat->LogTMax)) {
-        /* Central difference. */
-        dLogSdLogT = (scvheosLogSofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogSofLogRhoLogT(Mat, logrho, logT-h))/(2.0*h);
-    } else if (logT-h > Mat->LogTMin) {
-        /* Backward finite difference. */
-        dLogSdLogT = (scvheosLogSofLogRhoLogT(Mat, logrho, logT)-scvheosLogSofLogRhoLogT(Mat, logrho, logT-h))/h;
-    } else if (logT+h < Mat->LogTMax) {
-        /* Forward finite difference. */
-        dLogSdLogT = (scvheosLogSofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogSofLogRhoLogT(Mat, logrho, logT))/h;
-    } else {
-        /* Both points are problematic so h is reduced. */
-        h *= 1e-4;
-        dLogSdLogT = (scvheosLogSofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogSofLogRhoLogT(Mat, logrho, logT-h))/(2.0*h);
-    }
-
-    return dLogSdLogT;
+    return scvheosdLogdLog(Mat, Mat->InterpLogS, Mat->dLogSArray, Mat->xAccS, Mat->yAccS,
+                           logrho, logT, FALSE, __func__);
 }
 
 /*
