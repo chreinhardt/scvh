@@ -8,6 +8,7 @@
 #ifndef SCVHEOS_HINCLUDED
 #define SCVHEOS_HINCLUDED
 
+#include <stdio.h>   /* FILE in scvheosPrintMat */
 #include <gsl/gsl_interp2d.h>
 
 /*
@@ -35,6 +36,19 @@
  * treated the same way as any other failed lookup.
  */
 #define SCVHEOS_FAIL_VALUE (-1e50)
+
+/*
+ * Reference density rho0 (cgs). A gas has no natural reference density;
+ * this value is a convention and is used for
+ *  - ballic: the density the model starts from,
+ *  - EOSSolveBC: the lower bracket for rho2 starts at 0.999*rho0 and is
+ *    shrunk by 0.9 at most EOS_SOLVEBC_MAX_EXPAND times, so interface
+ *    densities down to ~3e-8 g/cc are reachable from this value,
+ *  - EOSWoolfsonCoeff (obsolete): the 0.8*rho0 cutoff.
+ * scvheosInitMaterial moves it to the geometric centre of the rho axis if
+ * it lies outside the table, since EOSSolveBC evaluates the EOS there.
+ */
+#define SCVHEOS_RHO0_CGS 1e-3
 
 /*
  * Material ids.

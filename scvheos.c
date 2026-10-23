@@ -111,8 +111,8 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     Mat->nT = 0;
     Mat->dLogBase = 10.0;
 
-    /* Set the reference density for ballic (careful: this fails for clumps!!). */ 
-    Mat->rho0 = 1e-3; 
+    /* Reference density, a convention for a gas; see SCVHEOS_RHO0_CGS. */
+    Mat->rho0 = SCVHEOS_RHO0_CGS;
 
     /*
      * Load the EOS table.
@@ -271,6 +271,24 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     Mat->LogRhoMax = Mat->dLogRhoAxis[Mat->nRho-1];
     Mat->LogTMin = Mat->dLogTAxis[0];
     Mat->LogTMax = Mat->dLogTAxis[Mat->nT-1];
+
+    /*
+     * rho0 must be a density the EOS can be evaluated at (EOSSolveBC starts
+     * its lower bracket at 0.999*rho0). If the table does not cover the
+     * conventional value, fall back to the geometric centre of the rho axis.
+     * Still in cgs here.
+     */
+    {
+        double logrho0 = log10(Mat->rho0);
+        if (!(logrho0 > Mat->LogRhoMin) || !(logrho0 < Mat->LogRhoMax)) {
+            logrho0 = 0.5*(Mat->LogRhoMin + Mat->LogRhoMax);
+            fprintf(stderr, "scvheosInitMaterial: iMat= %i: reference density %g g/cc outside the "
+                    "table [%g, %g] g/cc, using %g g/cc instead.\n", iMat, Mat->rho0,
+                    pow(Mat->dLogBase, Mat->LogRhoMin), pow(Mat->dLogBase, Mat->LogRhoMax),
+                    pow(Mat->dLogBase, logrho0));
+            Mat->rho0 = pow(Mat->dLogBase, logrho0);
+        }
+    }
 
     /*
      * Convert from cgs to code units.
