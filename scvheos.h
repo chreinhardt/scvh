@@ -51,14 +51,20 @@
 #define SCVHEOS_RHO0_CGS 1e-3
 
 /*
- * Material ids.
+ * Material ids (EOSlib reserves 110-130 for SCvH).
+ *
+ * 114 loads the full extended H-He table (460 x 76), not the low-rho/T cut
+ * it was once limited to; SCVHEOS_HHE_EXT is the accurate name and
+ * SCVHEOS_HHE_EXT_LOWRHOT is kept as a synonym for existing parameter files.
+ * 115 is reserved but has no table yet.
  */
 #define SCVHEOS_H               110
 #define SCVHEOS_HE              111
 #define SCVHEOS_HHE             112
 #define SCVHEOS_HHE_LOWRHOT     113
-#define SCVHEOS_HHE_EXT_LOWRHOT 114
-#define SCVHEOS_H_EXT           115
+#define SCVHEOS_HHE_EXT         114
+#define SCVHEOS_HHE_EXT_LOWRHOT SCVHEOS_HHE_EXT   /* legacy name */
+#define SCVHEOS_H_EXT           115               /* reserved, no table */
 #define SCVHEOS_HE_EXT          116
 #define SCVHEOS_HHE_H2O_Z_1     117
 #define SCVHEOS_HHE_H2O_Z_05    118
@@ -84,6 +90,11 @@
 #define TRUE  1
 #endif
 
+/*
+ * One SCVHEOSMAT is NOT safe to share between threads: the gsl_interp_accel
+ * caches are mutated by every lookup. pkdgrav3 holds one material per
+ * thread, which is what this library assumes.
+ */
 typedef struct scvheosMat {
     int iMat;
     int nRho;

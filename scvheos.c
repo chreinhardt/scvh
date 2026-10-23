@@ -127,7 +127,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             nRho = 201;
             nT = 100;
             nSkip = 1;
-            strcpy(Mat->MatString, "Material not implemented yet.");
+            strcpy(Mat->MatString, "SCvH EOS H (Saumon et al. 1995).");
             break;
         case SCVHEOS_HE:
             /*
@@ -137,7 +137,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             nRho = 201;
             nT = 100;
             nSkip = 1;
-            strcpy(Mat->MatString, "Material not implemented yet.");
+            strcpy(Mat->MatString, "SCvH EOS He (Saumon et al. 1995).");
             break;
         case SCVHEOS_HHE:
             /*
@@ -147,7 +147,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             nRho = 201;
             nT = 100;
             nSkip = 1;
-            strcpy(Mat->MatString, "Material not implemented yet.");
+            strcpy(Mat->MatString, "SCvH EOS H-He Y=0.275 (Saumon et al. 1995).");
             break;
         case SCVHEOS_HHE_LOWRHOT:
             /*
@@ -159,17 +159,11 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             nSkip = 2;
             strcpy(Mat->MatString, "SCvH EOS H-He Y=0.275 (Saumon et al. 1995, Vazan et al. 2013).");
             break;
-        case SCVHEOS_HHE_EXT_LOWRHOT:
+        case SCVHEOS_HHE_EXT:
             /*
-             * Hydrogen / Helium mixture (X=0.722, Y=0.278) based on the extended EOS tables
-             * limited to low rho and T.
+             * Hydrogen / Helium mixture (X=0.722, Y=0.278), full extended EOS table
+             * (the low-rho/T cut this id once loaded is no longer used).
              */
-#if 0
-            strcpy(inFile, "scvh_extended_dt_hydrogen_722_helium_278_lowrhot.txt");
-            nRho = 201;
-            nT = 31;
-            nSkip = 2;
-#endif
             strcpy(inFile, "scvh_extended_dt_hydrogen_722_helium_278.data");
             nRho = 460;
             nT = 76;
@@ -227,9 +221,6 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             scvheosFinalizeMaterial(Mat);
             exit(1);
     }
-
-    /* Currently only SCVHEOS_HHE_EXT_LOWRHOT works. */
-    //assert(iMat == SCVHEOS_HHE_EXT_LOWRHOT);
 
     /*
      * Allocate memory and read the EOS table.
