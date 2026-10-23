@@ -222,7 +222,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
      * Allocate memory and read the EOS table.
      */
     if (scvheosReadTable(Mat, inFile, nRho, nT, nSkip) != SCVHEOS_SUCCESS) {
-        fprintf(stderr, "SCVH EOS: Could not open EOS table %s.\n", inFile);
+        fprintf(stderr, "scvheosInitMaterial: Could not read EOS table %s (see above).\n", inFile);
         scvheosFinalizeMaterial(Mat);
         exit(1);
     }
@@ -327,6 +327,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     /* The sound speed can only be calculated after the interpolation in P and u is initialized. */
     if (scvheosGenerateSoundSpeedTable(Mat) != SCVHEOS_SUCCESS) {
         fprintf(stderr, "scvheosInitMaterial: Could not generate table for sound speed.\n");
+        scvheosFinalizeMaterial(Mat);
         exit(1);
     }
 
@@ -432,29 +433,79 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT, int nSk
         }
     }
 
+    /*
+     * The file lists one (logT, logrho, logP, logu, logs) row per node, T
+     * outermost. The axes are taken from the first T row (for rho) and the
+     * first rho column (for T) and every later row must repeat them exactly:
+     * a mismatch means the file is not a rectangular grid in the assumed
+     * order, which the interpolator would silently misread.
+     */
     for (i=0; i<nT; i++) {
         for (j=0; j<nRho; j++) {
+            double logT, logrho, logP, logu, logs;
+
             if (getline(&chLine, &nCharMax, fp) == -1) {
+                fprintf(stderr, "scvheosReadTable: %s: unexpected end of file at iT= %i jRho= %i "
+                        "(expected nT= %i x nRho= %i nodes).\n", chInFile, i, j, nT, nRho);
+                goto cleanup;
+            }
+
+            iRet = sscanf(chLine, "%lf %lf %lf %lf %lf", &logT, &logrho, &logP, &logu, &logs);
+
+            /* Check if the number of matches is correct. */
+            if (iRet != 5) {
+                fprintf(stderr, "scvheosReadTable: %s: expected 5 columns at iT= %i jRho= %i, got %i.\n",
+                        chInFile, i, j, iRet);
+                goto cleanup;
+            }
+
+            /* The file stores logarithms; nan or inf would poison the interpolator. */
+            if (!isfinite(logT) || !isfinite(logrho) || !isfinite(logP) || !isfinite(logu) || !isfinite(logs)) {
+                fprintf(stderr, "scvheosReadTable: %s: non-finite entry at iT= %i jRho= %i "
+                        "(logT= %g logrho= %g logP= %g logu= %g logs= %g).\n",
+                        chInFile, i, j, logT, logrho, logP, logu, logs);
+                goto cleanup;
+            }
+
+            /* Axes: set from the first row/column, verify afterwards. */
+            if (i == 0) {
+                Mat->dLogRhoAxis[j] = logrho;
+            } else if (logrho != Mat->dLogRhoAxis[j]) {
+                fprintf(stderr, "scvheosReadTable: %s: logrho= %.15g at iT= %i jRho= %i differs from "
+                        "the rho axis (%.15g): not a rectangular grid.\n",
+                        chInFile, logrho, i, j, Mat->dLogRhoAxis[j]);
+                goto cleanup;
+            }
+
+            if (j == 0) {
+                Mat->dLogTAxis[i] = logT;
+            } else if (logT != Mat->dLogTAxis[i]) {
+                fprintf(stderr, "scvheosReadTable: %s: logT= %.15g at iT= %i jRho= %i differs from "
+                        "the T axis (%.15g): not a rectangular grid.\n",
+                        chInFile, logT, i, j, Mat->dLogTAxis[i]);
                 goto cleanup;
             }
 
             /* We store the data as A[T][rho]. */
-            iRet = sscanf(chLine, "%lf %lf %lf %lf %lf", &Mat->dLogTAxis[i], &Mat->dLogRhoAxis[j],
-                                                         &Mat->dLogPArray[j*nT+i],
-                                                         &Mat->dLogUArray[j*nT+i],
-                                                         &Mat->dLogSArray[j*nT+i]);
+            Mat->dLogPArray[j*nT+i] = logP;
+            Mat->dLogUArray[j*nT+i] = logu;
+            Mat->dLogSArray[j*nT+i] = logs;
+        }
+    }
 
-            /* Check if the number of matches is correct. */
-            if (iRet != 5) {
-                goto cleanup;
-            }
-
-            if ((pow(Mat->dLogBase, Mat->dLogRhoAxis[j]) < 0.0) ||
-                (pow(Mat->dLogBase, Mat->dLogTAxis[i]) < 0.0) ||
-                (pow(Mat->dLogBase, Mat->dLogUArray[j*nT+i]) < 0.0) ||
-                (pow(Mat->dLogBase, Mat->dLogSArray[j*nT+i]) < 0.0)) {
-                goto cleanup;
-            }
+    /* GSL requires strictly increasing axes. */
+    for (j=1; j<nRho; j++) {
+        if (!(Mat->dLogRhoAxis[j] > Mat->dLogRhoAxis[j-1])) {
+            fprintf(stderr, "scvheosReadTable: %s: rho axis not strictly increasing at jRho= %i "
+                    "(%.15g <= %.15g).\n", chInFile, j, Mat->dLogRhoAxis[j], Mat->dLogRhoAxis[j-1]);
+            goto cleanup;
+        }
+    }
+    for (i=1; i<nT; i++) {
+        if (!(Mat->dLogTAxis[i] > Mat->dLogTAxis[i-1])) {
+            fprintf(stderr, "scvheosReadTable: %s: T axis not strictly increasing at iT= %i "
+                    "(%.15g <= %.15g).\n", chInFile, i, Mat->dLogTAxis[i], Mat->dLogTAxis[i-1]);
+            goto cleanup;
         }
     }
 
