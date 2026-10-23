@@ -1530,32 +1530,33 @@ int scvheosCheckBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
 }
 
 /*
- * Check if a value (rho, u) is inside of the extrapolation limits.
+ * Check if a value (rho, u) is inside of the EOS table.
+ *
+ * Returns SCVHEOS_SUCCESS, or one of SCVHEOS_OUTSIDE_RHOMIN, _RHOMAX, _TMIN,
+ * _TMAX. The energy bounds are u(rho, T_min) and u(rho, T_max) of the table
+ * column, which assumes u(T) is monotonic at fixed rho (the same assumption
+ * scvheosLogTofLogRhoLogU makes). A state that passes this test can be
+ * inverted: both bracket ends are inside the table and the root is bracketed.
+ *
+ * rho <= 0 reports RHOMIN and u <= 0 reports TMIN: log10 of a non-positive
+ * number is NaN or -inf, and the comparisons below would otherwise let the
+ * state through. Non-finite input is reported the same way.
  */
 int scvheosIsInExtrapLimit(SCVHEOSMAT *Mat, double rho, double u) {
-    double logrho = log10(rho);
-    double logu = log10(u);
+    double logrho;
+    double logu;
+
+    if (!(rho > 0.0) || !isfinite(rho)) return SCVHEOS_OUTSIDE_RHOMIN;
+    if (!(u > 0.0) || !isfinite(u)) return SCVHEOS_OUTSIDE_TMIN;
+
+    logrho = log10(rho);
+    logu = log10(u);
 
     if (logrho < Mat->LogRhoMin) return SCVHEOS_OUTSIDE_RHOMIN;
     if (logrho > Mat->LogRhoMax) return SCVHEOS_OUTSIDE_RHOMAX;
     if (logu < scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMin)) return SCVHEOS_OUTSIDE_TMIN;
-    // if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMax)) return SCVHEOS_OUTSIDE_TMAX;
-#if 0
-    // CR: 03.10.2022
-    if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMax)) {
-        fprintf(stderr, "scvheosIsInExtrapLimit:\n");
-        fprintf(stderr, "rho= %g ", rho);
-        fprintf(stderr, "logrho= %g ", logrho);
-        fprintf(stderr, "u= %g ", u);
-        fprintf(stderr, "logu= %g\n", logu);
-        fprintf(stderr, "LogTMin= %g ", Mat->LogTMin);
-        fprintf(stderr, "LogTMax= %g ", Mat->LogTMax);
-        fprintf(stderr, "loguMin= %g\n", scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMin));
-        fprintf(stderr, "loguMax= %g\n", scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMin));
+    if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMax)) return SCVHEOS_OUTSIDE_TMAX;
 
-        return SCVHEOS_OUTSIDE_TMAX;
-    }
-#endif
     return SCVHEOS_SUCCESS;
 }
 
