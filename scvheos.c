@@ -276,11 +276,16 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             Mat->dLogRhoAxis[i] -= log10(Mat->dGmPerCcUnit);
         }
         
+        /*
+         * The entropy table is NOT converted: following the EOSlib convention
+         * (see EOSSofRhoU/EOSSofRhoT in EOSlib.h) the specific entropy is
+         * always in cgs, erg g^-1 K^-1, whatever the units of rho, u and P.
+         * Only entropy differences within one material are meaningful anyway.
+         */
         for (int i=0; i<Mat->nT; i++) {
             for (int j=0; j<Mat->nRho; j++) {
                 Mat->dLogPArray[j*Mat->nT+i] -= log10(Mat->dErgPerGmUnit*Mat->dGmPerCcUnit);
                 Mat->dLogUArray[j*Mat->nT+i] -= log10(Mat->dErgPerGmUnit);
-                Mat->dLogSArray[j*Mat->nT+i] -= log10(Mat->dErgPerGmUnit);
             }
         }
  
@@ -748,9 +753,10 @@ double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
 }
 
 /*
- * Calculate the entropy s(rho, T).
+ * Calculate the specific entropy s(rho, T).
  *
- * Returns SCVHEOS_FAIL_VALUE if the lookup fails.
+ * Returned in cgs (erg g^-1 K^-1) regardless of the code units of rho, u
+ * and P (EOSlib convention). Returns SCVHEOS_FAIL_VALUE if the lookup fails.
  */
 double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     double logrho;
@@ -1173,7 +1179,8 @@ double scvheosTofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
 }
 
 /*
- * Calculate the temperature T(rho, s).
+ * Calculate the temperature T(rho, s). s is in cgs (erg g^-1 K^-1), as
+ * returned by scvheosSofRhoT.
  *
  * Returns SCVHEOS_FAIL_VALUE if the inversion fails.
  */
