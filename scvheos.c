@@ -336,17 +336,32 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
 }
 
 /*
- * Free memory.
+ * Free memory. Safe to call on a partially initialized material (calloc
+ * zeroes all pointers, and the GSL free functions accept NULL).
  */
 int scvheosFinalizeMaterial(SCVHEOSMAT *Mat) {
     if (Mat != NULL) {
-        if (Mat->dLogRhoAxis != NULL) free(Mat->dLogRhoAxis);
-        if (Mat->dLogTAxis != NULL) free(Mat->dLogTAxis);
+        gsl_interp2d_free(Mat->InterpLogP);
+        gsl_interp2d_free(Mat->InterpLogU);
+        gsl_interp2d_free(Mat->InterpLogS);
+        gsl_interp2d_free(Mat->InterpLogCs);
 
-        if (Mat->dLogUArray != NULL) free(Mat->dLogUArray);
-        if (Mat->dLogPArray != NULL) free(Mat->dLogPArray); 
-        if (Mat->dLogSArray != NULL) free(Mat->dLogSArray);
-        if (Mat->dLogCArray != NULL) free(Mat->dLogCArray);
+        gsl_interp_accel_free(Mat->xAccP);
+        gsl_interp_accel_free(Mat->yAccP);
+        gsl_interp_accel_free(Mat->xAccU);
+        gsl_interp_accel_free(Mat->yAccU);
+        gsl_interp_accel_free(Mat->xAccS);
+        gsl_interp_accel_free(Mat->yAccS);
+        gsl_interp_accel_free(Mat->xAccCs);
+        gsl_interp_accel_free(Mat->yAccCs);
+
+        free(Mat->dLogRhoAxis);
+        free(Mat->dLogTAxis);
+
+        free(Mat->dLogUArray);
+        free(Mat->dLogPArray);
+        free(Mat->dLogSArray);
+        free(Mat->dLogCArray);
 
         free(Mat);
     }
@@ -366,10 +381,11 @@ int scvheosFinalizeMaterial(SCVHEOSMAT *Mat) {
  * H/He: nRho = 201, nT = 100, logarithmic spacing (base 10)
  */
 int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT, int nSkip) {
-    FILE *fp;
-    char *chLine;
+    FILE *fp = NULL;
+    char *chLine = NULL;
     size_t nCharMax = 256;
     int iRet;
+    int iStatus = SCVHEOS_FAIL;
     int i, j;
 
     if (Mat == NULL)  {
@@ -381,6 +397,11 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT, int nSk
         return SCVHEOS_FAIL;
     }
 
+    /*
+     * The table arrays stay allocated on failure: scvheosFinalizeMaterial
+     * frees them. Only the local resources (fp, chLine) are released here,
+     * on every path, via the cleanup label.
+     */
     Mat->dLogRhoAxis = (double *) calloc(nRho, sizeof(double));
     Mat->dLogTAxis = (double *) calloc(nT, sizeof(double));
 
@@ -391,27 +412,30 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT, int nSk
 
     if ((Mat->dLogRhoAxis == NULL) || (Mat->dLogTAxis == NULL) || (Mat->dLogUArray == NULL) ||
             (Mat->dLogPArray == NULL) || (Mat->dLogSArray == NULL)) {
-        return SCVHEOS_FAIL;
+        goto cleanup;
     }
 
     chLine = (char *) calloc(nCharMax, sizeof(char));
+    if (chLine == NULL) {
+        goto cleanup;
+    }
 
     /* Open the file and skip the first few lines. */
     fp = fopen(chInFile, "r");
     if (fp == NULL) {
-        return SCVHEOS_FAIL;
+        goto cleanup;
     }
 
     for (i=0; i<nSkip; i++) {
         if (getline(&chLine, &nCharMax, fp) == -1) {
-            return SCVHEOS_FAIL;
+            goto cleanup;
         }
     }
 
     for (i=0; i<nT; i++) {
         for (j=0; j<nRho; j++) {
             if (getline(&chLine, &nCharMax, fp) == -1) {
-                return SCVHEOS_FAIL;
+                goto cleanup;
             }
 
             /* We store the data as A[T][rho]. */
@@ -422,25 +446,27 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT, int nSk
 
             /* Check if the number of matches is correct. */
             if (iRet != 5) {
-                return SCVHEOS_FAIL;
+                goto cleanup;
             }
 
             if ((pow(Mat->dLogBase, Mat->dLogRhoAxis[j]) < 0.0) ||
                 (pow(Mat->dLogBase, Mat->dLogTAxis[i]) < 0.0) ||
                 (pow(Mat->dLogBase, Mat->dLogUArray[j*nT+i]) < 0.0) ||
                 (pow(Mat->dLogBase, Mat->dLogSArray[j*nT+i]) < 0.0)) {
-                return SCVHEOS_FAIL;
+                goto cleanup;
             }
         }
     }
 
-    fclose(fp);
-    free(chLine);
-
     Mat->nRho = nRho;
     Mat->nT = nT;
+    iStatus = SCVHEOS_SUCCESS;
 
-    return SCVHEOS_SUCCESS;
+cleanup:
+    if (fp != NULL) fclose(fp);
+    free(chLine);   /* getline may have reallocated it; free(NULL) is fine */
+
+    return iStatus;
 }
 
 /*
