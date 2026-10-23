@@ -209,9 +209,10 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             strcpy(Mat->MatString, "SCvH EOS H-He and H2O mixture Z=0.012.");
             break;
         default:
-            /* Unknown material */
+            /* Unknown material. Do not fall through: Mat is freed here. */
+            fprintf(stderr, "scvheosInitMaterial: iMat= %i is not an SCvH EOS material.\n", iMat);
             scvheosFinalizeMaterial(Mat);
-            assert(0);
+            exit(1);
     }
 
     /* Currently only SCVHEOS_HHE_EXT_LOWRHOT works. */
