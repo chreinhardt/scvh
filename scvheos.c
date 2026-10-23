@@ -20,6 +20,26 @@
 #include "scvheos.h"
 
 /*
+ * Lookup failure handling.
+ *
+ * The log-space functions return SCVHEOS_FAIL_VALUE when a lookup fails and
+ * SCVH_NOEXIT is defined, otherwise they exit. The linear-space wrappers must
+ * test the log value BEFORE exponentiating, because pow(10, -1e50) == 0 is a
+ * perfectly valid-looking number and the failure would be lost.
+ *
+ * scvheosFailed(x) is true for the sentinel and for NaN, in log or linear space.
+ */
+static int scvheosFailed(double x) {
+    return !(x > -1e40);
+}
+
+#ifdef SCVH_NOEXIT
+#define SCVHEOS_FAIL_OR_EXIT() return SCVHEOS_FAIL_VALUE
+#else
+#define SCVHEOS_FAIL_OR_EXIT() exit(1)
+#endif
+
+/*
  * Initalize a material.
  *
  * Initialize the material data, read the EOS tables and convert them to code units if desired.
@@ -475,22 +495,23 @@ int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
 
 /*
  * Calculate logP(logrho, logT).
+ *
+ * Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if (logrho, logT)
+ * is not finite or outside of the table.
  */
 double scvheosLogPofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     double logP;
 
-    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
+    if (!isfinite(logrho) || !isfinite(logT) ||
+        (logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
 	    fprintf(stderr, "scvheosLogPofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-#ifdef SCVH_NOEXIT
-        return -1e50; 
-#endif
-        exit(1);
+        SCVHEOS_FAIL_OR_EXIT();
     }
 
     if (gsl_interp2d_eval_e_extrap(Mat->InterpLogP, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogPArray, logT, logrho,
 			    Mat->xAccP, Mat->yAccP, &logP) != GSL_SUCCESS) {
 	    fprintf(stderr, "scvheosLogPofLogRhoLogT: Interpolation failed (logrho= %15.7E logT= %15.7E).\n", logrho, logT);
-	    exit(1);
+        SCVHEOS_FAIL_OR_EXIT();
     }
  
     return logP;
@@ -498,22 +519,23 @@ double scvheosLogPofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
 
 /*
  * Calculate logU(logrho, logT).
+ *
+ * Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if (logrho, logT)
+ * is not finite or outside of the table.
  */
 double scvheosLogUofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     double logu;
 
-    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
+    if (!isfinite(logrho) || !isfinite(logT) ||
+        (logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
 	    fprintf(stderr, "scvheosLogUofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-#ifdef SCVH_NOEXIT
-        return -1e50; 
-#endif
-        exit(1);
+        SCVHEOS_FAIL_OR_EXIT();
     }
 
     if (gsl_interp2d_eval_e_extrap(Mat->InterpLogU, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogUArray, logT, logrho,
 			    Mat->xAccU, Mat->yAccU, &logu) != GSL_SUCCESS) {
 	    fprintf(stderr, "scvheosLogUofLogRhoLogT: Interpolation failed (logrho= %15.7E logT= %15.7E).\n", logrho, logT);
-	    exit(1);
+        SCVHEOS_FAIL_OR_EXIT();
     }
     
     return logu;
@@ -521,19 +543,23 @@ double scvheosLogUofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
 
 /*
  * Calculate logs(logrho, logT).
+ *
+ * Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if (logrho, logT)
+ * is not finite or outside of the table.
  */
 double scvheosLogSofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     double logs;
 
-    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
+    if (!isfinite(logrho) || !isfinite(logT) ||
+        (logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
 	    fprintf(stderr, "scvheosLogSofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-        exit(1);
+        SCVHEOS_FAIL_OR_EXIT();
     }
 
     if (gsl_interp2d_eval_e_extrap(Mat->InterpLogS, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogSArray, logT, logrho,
 			    Mat->xAccS, Mat->yAccS, &logs) != GSL_SUCCESS) {
 	    fprintf(stderr, "scvheosLogSofLogRhoLogT: Interpolation failed (logrho= %15.7E logT= %15.7E).\n", logrho, logT);
-	    exit(1);
+        SCVHEOS_FAIL_OR_EXIT();
     }
     
     return logs;
@@ -541,19 +567,23 @@ double scvheosLogSofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
 
 /*
  * Calculate logcs(logrho, logT).
+ *
+ * Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if (logrho, logT)
+ * is not finite or outside of the table.
  */
 double scvheosLogCsofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     double logcs;
 
-    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
+    if (!isfinite(logrho) || !isfinite(logT) ||
+        (logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
 	    fprintf(stderr, "scvheosLogCsofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-        exit(1);
+        SCVHEOS_FAIL_OR_EXIT();
     }
 
     if (gsl_interp2d_eval_e_extrap(Mat->InterpLogCs, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogCArray, logT, logrho,
 			    Mat->xAccCs, Mat->yAccCs, &logcs) != GSL_SUCCESS) {
 	    fprintf(stderr, "scvheosLogCsofLogRhoLogT: Interpolation failed (logrho= %15.7E logT= %15.7E).\n", logrho, logT);
-	    exit(1);
+        SCVHEOS_FAIL_OR_EXIT();
     }
  
     return logcs;
@@ -562,77 +592,92 @@ double scvheosLogCsofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
 
 /*
  * Calculate the pressure P(rho, T).
+ *
+ * Returns SCVHEOS_FAIL_VALUE if the lookup fails.
  */
 double scvheosPofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     double logrho;
     double logT;
-    double P;
+    double logP;
 
     logrho = log10(rho);
     logT = log10(T);
 
     /* Interpolate in the table. */
-    P = pow(Mat->dLogBase, scvheosLogPofLogRhoLogT(Mat, logrho, logT));
+    logP = scvheosLogPofLogRhoLogT(Mat, logrho, logT);
+    if (scvheosFailed(logP)) return SCVHEOS_FAIL_VALUE;
 
-    return P;
+    return pow(Mat->dLogBase, logP);
 }
 
 /*
  * Calculate the internal energy u(rho, T).
+ *
+ * Returns SCVHEOS_FAIL_VALUE if the lookup fails.
  */
 double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     double logrho;
     double logT;
-    double u;
+    double logu;
 
     logrho = log10(rho);
     logT = log10(T);
 
-    u = pow(Mat->dLogBase, scvheosLogUofLogRhoLogT(Mat, logrho, logT));
+    logu = scvheosLogUofLogRhoLogT(Mat, logrho, logT);
+    if (scvheosFailed(logu)) return SCVHEOS_FAIL_VALUE;
 
-    return u;
+    return pow(Mat->dLogBase, logu);
 }
 
 /*
  * Calculate the entropy s(rho, T).
+ *
+ * Returns SCVHEOS_FAIL_VALUE if the lookup fails.
  */
 double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     double logrho;
     double logT;
-    double s;
+    double logs;
 
     logrho = log10(rho);
     logT = log10(T);
 
     /* Interpolate in the table. */
-    s = pow(Mat->dLogBase, scvheosLogSofLogRhoLogT(Mat, logrho, logT));
+    logs = scvheosLogSofLogRhoLogT(Mat, logrho, logT);
+    if (scvheosFailed(logs)) return SCVHEOS_FAIL_VALUE;
 
-    return s;
+    return pow(Mat->dLogBase, logs);
 }
 
 /*
  * Calculate the sound speed cs(rho, T).
+ *
+ * Returns SCVHEOS_FAIL_VALUE if the lookup fails.
  */
 double scvheosCsofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     double logrho;
     double logT;
-    double Cs;
+    double logcs;
 
     logrho = log10(rho);
     logT = log10(T);
 
-    Cs = pow(Mat->dLogBase, scvheosLogCsofLogRhoLogT(Mat, logrho, logT));
+    logcs = scvheosLogCsofLogRhoLogT(Mat, logrho, logT);
+    if (scvheosFailed(logcs)) return SCVHEOS_FAIL_VALUE;
 
-    return Cs;
+    return pow(Mat->dLogBase, logcs);
 }
 
 /*
  * Calculate the pressure P(rho, u).
+ *
+ * Returns SCVHEOS_FAIL_VALUE if the inversion or the lookup fails.
  */
 double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
     double logrho;
     double logu;
     double logT;
+    double logP;
     double P;
 
     logrho = log10(rho);
@@ -640,9 +685,13 @@ double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
 
     /* Calculate logT. */
     logT = scvheosLogTofLogRhoLogU(Mat, logrho, logu);
+    if (scvheosFailed(logT)) return SCVHEOS_FAIL_VALUE;
 
     /* Interpolate in the table. */
-    P = pow(Mat->dLogBase, scvheosLogPofLogRhoLogT(Mat, logrho, logT));
+    logP = scvheosLogPofLogRhoLogT(Mat, logrho, logT);
+    if (scvheosFailed(logP)) return SCVHEOS_FAIL_VALUE;
+
+    P = pow(Mat->dLogBase, logP);
 
     // CR
     assert(P > 0.0);
@@ -651,26 +700,33 @@ double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
 
 /*
  * Calculate the sound speed cs(rho, u).
+ *
+ * Returns SCVHEOS_FAIL_VALUE if the inversion or the lookup fails.
  */
 double scvheosCsofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
     double logrho;
     double logu;
     double logT;
-    double Cs;
+    double logcs;
 
     logrho = log10(rho);
     logu = log10(u);
 
     /* Calculate logT. */
     logT = scvheosLogTofLogRhoLogU(Mat, logrho, logu);
+    if (scvheosFailed(logT)) return SCVHEOS_FAIL_VALUE;
 
-    Cs = pow(Mat->dLogBase, scvheosLogCsofLogRhoLogT(Mat, logrho, logT));
+    logcs = scvheosLogCsofLogRhoLogT(Mat, logrho, logT);
+    if (scvheosFailed(logcs)) return SCVHEOS_FAIL_VALUE;
 
-    return Cs;
+    return pow(Mat->dLogBase, logcs);
 }
 
 /*
  * Calculate the temperature logT(logrho, logu).
+ *
+ * Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if the input is
+ * not finite or the root cannot be bracketed.
  */
 double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
     /* GSL root finder */
@@ -684,6 +740,12 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
     int max_iter = 1000;
     double logT_min, logT_max;
     double logT = 0.0;
+
+    /* log10 of a non-positive rho or u is NaN/-inf: nothing to invert. */
+    if (!isfinite(logrho) || !isfinite(logu)) {
+        fprintf(stderr, "scvheosLogTofLogRhoLogU: invalid input logrho= %g logu= %g.\n", logrho, logu);
+        SCVHEOS_FAIL_OR_EXIT();
+    }
 
     /* Initialize the parameters. */
     Params.Mat = Mat;
@@ -716,7 +778,7 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
     */
 
     /* Make sure the root is bracketed.*/
-    if (LogUofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogUofLogRhoLogT_GSL_rootfinder(logT_max, &Params) > 0.0) {
+    if (!(LogUofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogUofLogRhoLogT_GSL_rootfinder(logT_max, &Params) <= 0.0)) {
         // CR: 04.10.2022
         fprintf(stderr, "scvheosLogTofLogRhoLogU:\n");
 
@@ -729,8 +791,8 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
         fprintf(stderr, "loguMax= %g\n", LogUofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogUofLogRhoLogT_GSL_rootfinder(logT_max, &Params));
 
         fprintf(stderr, "Could not bracket root.\n");
-        assert(0);
-        //return -1e50;
+        gsl_root_fsolver_free(Solver);
+        SCVHEOS_FAIL_OR_EXIT();
     }
 
     gsl_root_fsolver_set(Solver, &F, logT_min, logT_max);
@@ -778,6 +840,9 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
 
 /*
  * Calculate the temperature logT(logrho, logs).
+ *
+ * Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if the input is
+ * not finite or the root cannot be bracketed.
  */
 double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
     /* GSL root finder */
@@ -791,6 +856,11 @@ double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
     int max_iter = 1000;
     double logT_min, logT_max;
     double logT = 0.0;
+
+    if (!isfinite(logrho) || !isfinite(logs)) {
+        fprintf(stderr, "scvheosLogTofLogRhoLogS: invalid input logrho= %g logs= %g.\n", logrho, logs);
+        SCVHEOS_FAIL_OR_EXIT();
+    }
 
     /* Initialize the parameters. */
     Params.Mat = Mat;
@@ -823,9 +893,10 @@ double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
     }
 
     /* Make sure the root is bracketed.*/
-    if (LogSofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogSofLogRhoLogT_GSL_rootfinder(logT_max, &Params) > 0.0) {
-        fprintf(stderr, "Could not bracket root.\n");
-        assert(0);
+    if (!(LogSofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogSofLogRhoLogT_GSL_rootfinder(logT_max, &Params) <= 0.0)) {
+        fprintf(stderr, "scvheosLogTofLogRhoLogS: Could not bracket root (logrho= %g logs= %g).\n", logrho, logs);
+        gsl_root_fsolver_free(Solver);
+        SCVHEOS_FAIL_OR_EXIT();
     }
 
     gsl_root_fsolver_set(Solver, &F, logT_min, logT_max);
@@ -863,6 +934,10 @@ double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
 
 /*
  * Calculate the density logrho(logP, logT).
+ *
+ * Returns SCVHEOS_FAIL_VALUE if the root finder does not converge, and
+ * SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if the input is not
+ * finite or the root cannot be bracketed.
  */
 double scvheosLogRhoofLogPLogT(SCVHEOSMAT *Mat, double logP, double logT) {
     /* GSL root finder */
@@ -876,6 +951,11 @@ double scvheosLogRhoofLogPLogT(SCVHEOSMAT *Mat, double logP, double logT) {
     int max_iter = 1000;
     double logrho_min, logrho_max;
     double logrho = 0.0;
+
+    if (!isfinite(logP) || !isfinite(logT)) {
+        fprintf(stderr, "scvheosLogRhoofLogPLogT: invalid input logP= %g logT= %g.\n", logP, logT);
+        SCVHEOS_FAIL_OR_EXIT();
+    }
 
     /* Initialize the parameters. */
     Params.Mat = Mat;
@@ -897,10 +977,10 @@ double scvheosLogRhoofLogPLogT(SCVHEOSMAT *Mat, double logP, double logT) {
     logrho_max = Mat->LogRhoMax;
 
     /* Make sure the root is bracketed.*/
-    if (LogPofLogRhoLogT_GSL_rootfinder(logrho_min, &Params)*LogPofLogRhoLogT_GSL_rootfinder(logrho_max, &Params) > 0.0) {
-        fprintf(stderr, "Could not bracket root.\n");
-        //return 1e-50;
-        assert(0);
+    if (!(LogPofLogRhoLogT_GSL_rootfinder(logrho_min, &Params)*LogPofLogRhoLogT_GSL_rootfinder(logrho_max, &Params) <= 0.0)) {
+        fprintf(stderr, "scvheosLogRhoofLogPLogT: Could not bracket root (logP= %g logT= %g).\n", logP, logT);
+        gsl_root_fsolver_free(Solver);
+        SCVHEOS_FAIL_OR_EXIT();
     }
 
     gsl_root_fsolver_set(Solver, &F, logrho_min, logrho_max);
@@ -926,7 +1006,14 @@ double scvheosLogRhoofLogPLogT(SCVHEOSMAT *Mat, double logP, double logT) {
         if (status != GSL_CONTINUE) break;
     }
 
-    if (status != GSL_SUCCESS) logrho = -1.0;
+    /*
+     * No convergence: return the failure sentinel. A value such as -1.0 would
+     * become a valid-looking density (0.1) after exponentiation.
+     */
+    if (status != GSL_SUCCESS) {
+        fprintf(stderr, "scvheosLogRhoofLogPLogT: root finder did not converge (logP= %g logT= %g).\n", logP, logT);
+        logrho = SCVHEOS_FAIL_VALUE;
+    }
 
     gsl_root_fsolver_free(Solver);
 
@@ -935,50 +1022,60 @@ double scvheosLogRhoofLogPLogT(SCVHEOSMAT *Mat, double logP, double logT) {
 
 /*
  * Calculate the temperature T(rho, u).
+ *
+ * Returns SCVHEOS_FAIL_VALUE if the inversion fails.
  */
 double scvheosTofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
     double logrho;
     double logu;
-    double T;
+    double logT;
 
     logrho = log10(rho);
     logu = log10(u);
 
-    T = pow(Mat->dLogBase, scvheosLogTofLogRhoLogU(Mat, logrho, logu));
+    logT = scvheosLogTofLogRhoLogU(Mat, logrho, logu);
+    if (scvheosFailed(logT)) return SCVHEOS_FAIL_VALUE;
 
-    return T;
+    return pow(Mat->dLogBase, logT);
 }
 
 /*
  * Calculate the temperature T(rho, s).
+ *
+ * Returns SCVHEOS_FAIL_VALUE if the inversion fails.
  */
 double scvheosTofRhoS(SCVHEOSMAT *Mat, double rho, double s) {
     double logrho;
     double logs;
-    double T;
+    double logT;
 
     logrho = log10(rho);
     logs = log10(s);
 
-    T = pow(Mat->dLogBase, scvheosLogTofLogRhoLogS(Mat, logrho, logs));
+    logT = scvheosLogTofLogRhoLogS(Mat, logrho, logs);
+    if (scvheosFailed(logT)) return SCVHEOS_FAIL_VALUE;
 
-    return T;
+    return pow(Mat->dLogBase, logT);
 }
 
 /*
  * Calculate the density rho(P, T).
+ *
+ * Returns SCVHEOS_FAIL_VALUE if the inversion fails (callers such as
+ * EOSWoolfsonCoeff test for rho <= 0).
  */
 double scvheosRhoofPT(SCVHEOSMAT *Mat, double P, double T) {
     double logP;
     double logT;
-    double rho;
+    double logrho;
 
     logP = log10(P);
     logT = log10(T);
 
-    rho = pow(Mat->dLogBase, scvheosLogRhoofLogPLogT(Mat, logP, logT));
+    logrho = scvheosLogRhoofLogPLogT(Mat, logP, logT);
+    if (scvheosFailed(logrho)) return SCVHEOS_FAIL_VALUE;
 
-    return rho;
+    return pow(Mat->dLogBase, logrho);
 }
 
 /*
@@ -1372,6 +1469,8 @@ double scvheosdPdUofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
 
 /*
  * Calculate u2 so that (rho1, u1) and (rho2, u2) are on the same isentrope.
+ *
+ * Returns SCVHEOS_FAIL_VALUE if any of the lookups fails.
  */
 double scvheosIsentropicU(SCVHEOSMAT *Mat, double rho1, double u1, double rho2) {
     double T1;
@@ -1380,11 +1479,16 @@ double scvheosIsentropicU(SCVHEOSMAT *Mat, double rho1, double u1, double rho2) 
     double u2;
 
     T1 = scvheosTofRhoU(Mat, rho1, u1);
+    if (scvheosFailed(T1)) return SCVHEOS_FAIL_VALUE;
+
     S = scvheosSofRhoT(Mat, rho1, T1);
+    if (scvheosFailed(S)) return SCVHEOS_FAIL_VALUE;
 
     T2 = scvheosTofRhoS(Mat, rho2, S);
+    if (scvheosFailed(T2)) return SCVHEOS_FAIL_VALUE;
    
     u2 = scvheosUofRhoT(Mat, rho2, T2);
+    if (scvheosFailed(u2)) return SCVHEOS_FAIL_VALUE;
 
     return u2;
 }
@@ -1503,4 +1607,3 @@ double LogPofLogRhoLogT_GSL_rootfinder(double logrho, void *params) {
 
     return (scvheosLogPofLogRhoLogT(Mat, logrho, logT)-logP);
 }
-

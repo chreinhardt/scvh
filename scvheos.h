@@ -25,6 +25,16 @@
 #define SCVHEOS_FAIL   -1
 
 /*
+ * Value returned by the EOS functions when a lookup or an inversion fails
+ * and the library is compiled with SCVH_NOEXIT (without it the functions
+ * exit). It is returned both by the log-space functions (in log space) and
+ * by the linear-space wrappers (rho, u, T, P, s, cs), so callers can test
+ * for x < -1e40 in either case. Without SCVH_NOEXIT the root finders still
+ * return this value when they do not converge.
+ */
+#define SCVHEOS_FAIL_VALUE (-1e50)
+
+/*
  * Material ids.
  */
 #define SCVHEOS_H               110
@@ -157,6 +167,7 @@ double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs);
 double scvheosLogRhoofLogPLogT(SCVHEOSMAT *Mat, double logP, double logT);
 
 double scvheosTofRhoU(SCVHEOSMAT *Mat, double rho, double u);
+double scvheosTofRhoS(SCVHEOSMAT *Mat, double rho, double s);
 double scvheosRhoofPT(SCVHEOSMAT *Mat, double P, double T);
 
 /* Use df/dx = f/x*ln(f)/ln(x). */
@@ -185,4 +196,3 @@ double LogUofLogRhoLogT_GSL_rootfinder(double logT, void *params);
 double LogSofLogRhoLogT_GSL_rootfinder(double logT, void *params);
 double LogPofLogRhoLogT_GSL_rootfinder(double logrho, void *params);
 #endif
-
