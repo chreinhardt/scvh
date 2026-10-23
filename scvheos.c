@@ -433,14 +433,25 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT, int nSk
  *
  * is the specific heat capacity at constant volume. The derivatives are obtained
  * numerically.
+ *
+ * Where the table is defective (c_v <= 0 or a negative cs^2, which happens
+ * e.g. in the H-He/H2O Z=0.05 table) cs^2 is replaced by P/rho at the node:
+ * this has the right units whatever the table is in, and for a gas it is a
+ * lower bound on cs^2 = gamma*P/rho, so the hydro code errs towards a short
+ * timestep. A zero or -inf must never be stored, because bilinear
+ * interpolation would spread it into the neighbouring cells. The number of
+ * replaced nodes is reported on stderr.
  */
 int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
     double rho;
     double T;
+    double P;
     double dPdrho;
     double dPdT;
     double cv;
     double cs2;
+    int nReplaced = 0;
+    const int nReport = 10;   /* print at most this many defective nodes */
 
     if (Mat == NULL)
         return SCVHEOS_FAIL;
@@ -461,29 +472,36 @@ int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
         for (int j=0; j<Mat->nRho; j++) {
             rho = pow(Mat->dLogBase, Mat->dLogRhoAxis[j]);
             T = pow(Mat->dLogBase, Mat->dLogTAxis[i]);
+            P = pow(Mat->dLogBase, Mat->dLogPArray[j*Mat->nT+i]);
 
             dPdrho = scvheosdPdRhoofRhoT(Mat, rho, T);
             dPdT = scvheosdPdTofRhoT(Mat, rho, T);
             cv = scvheosdUdTofRhoT(Mat, rho, T);
 
-            /* Use log(rho^2) = 2*log(rho). */
             cs2 = dPdrho + T/(rho*rho*cv)*dPdT*dPdT;
 
-            // For the H-He and H2O mixture with Z=0.05 the sound speed can be inf so we set it to a large value
-            if (!isfinite(cs2)) {
-                fprintf(stderr, "iT= %i jRho= %i rho= %g T= %g logrho= %g logT= %g\n", i, j, rho, T, Mat->dLogRhoAxis[j], Mat->dLogTAxis[i]);
-                fprintf(stderr, "dPdRho= %g dPdT= %g cv= %g cs= %g\n", dPdrho, dPdT, cv, cs2);
-                cs2 = 1e10;
+            /* Defective node: non-finite (cv = 0), or not positive. */
+            if (!isfinite(cs2) || !(cs2 > 0.0)) {
+                if (nReplaced < nReport) {
+                    fprintf(stderr, "scvheosGenerateSoundSpeedTable: iMat= %i iT= %i jRho= %i "
+                            "logrho= %g logT= %g dPdRho= %g dPdT= %g cv= %g cs2= %g, "
+                            "replaced by P/rho= %g\n", Mat->iMat, i, j,
+                            Mat->dLogRhoAxis[j], Mat->dLogTAxis[i], dPdrho, dPdT, cv, cs2, P/rho);
+                }
+                nReplaced++;
+                cs2 = P/rho;
             }
-            assert(!isinf(cs2));
 
-            if (cs2 <= 0.0) {
-                cs2 = 0.0;
-            }
-            //assert(cs2 > 0.0);
+            /* P/rho > 0 at every node (the table stores log P), so this is finite. */
+            assert(isfinite(cs2) && cs2 > 0.0);
 
-            Mat->dLogCArray[j*Mat->nT+i] = log10(sqrt(cs2));
+            Mat->dLogCArray[j*Mat->nT+i] = 0.5*log10(cs2);
         }
+    }
+
+    if (nReplaced > 0) {
+        fprintf(stderr, "scvheosGenerateSoundSpeedTable: iMat= %i: cs^2 replaced by P/rho at %i of %i nodes.\n",
+                Mat->iMat, nReplaced, Mat->nT*Mat->nRho);
     }
 
     return SCVHEOS_SUCCESS;
