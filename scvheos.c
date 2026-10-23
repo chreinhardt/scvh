@@ -40,6 +40,15 @@ static int scvheosFailed(double x) {
 #endif
 
 /*
+ * Absolute tolerance, in log10 space, for the residual of an inversion:
+ * |logu(logrho, logT) - logu| after solving for logT, and likewise for logs.
+ * 1e-6 in log10 is a relative error of 2.3e-6 in u. The root finders
+ * converge to 1e-10 in logT, so a residual above this means the solution is
+ * not a root (non-monotonic column, or the bracket closed on a jump).
+ */
+#define SCVHEOS_INVERT_TOL 1e-6
+
+/*
  * Initalize a material.
  *
  * Initialize the material data, read the EOS tables and convert them to code units if desired.
@@ -836,22 +845,24 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
         if (status != GSL_CONTINUE) break;
     }
 
+    gsl_root_fsolver_free(Solver);
+
     //if (status != GSL_SUCCESS) logT = -1.0;
     // Add stricter tests
     assert(status == GSL_SUCCESS); 
+
+    /*
+     * Check the residual with an absolute tolerance in log space. A relative
+     * test fabs(logu-logu_int)/logu is sign dependent: it always passes for
+     * logu < 0 (common in code units) and fails spuriously for 0 < logu << 1.
+     */
     double logu_int = scvheosLogUofLogRhoLogT(Mat, logrho, logT);
 
-    if (fabs(logu-logu_int)/logu < 1e-3) {
-    } else {
-        if (fabs(logu) > 1e-6) {
-            fprintf(stderr, "scvheosLogTofLogRhoLogU: logrho=%15.7E logu=%15.7E logT=%15.7E logu_int=%15.7E\n", logrho, logu, logT, logu_int);
-            assert(fabs(logu-logu_int)/logu < 1e-3);
-        }
+    if (!(fabs(logu-logu_int) < SCVHEOS_INVERT_TOL)) {
+        fprintf(stderr, "scvheosLogTofLogRhoLogU: residual too large: logrho=%15.7E logu=%15.7E logT=%15.7E logu_int=%15.7E\n",
+                logrho, logu, logT, logu_int);
+        SCVHEOS_FAIL_OR_EXIT();
     }
-
-    //assert(fabs(logu-logu_int)/logu < 1e-3);
-
-    gsl_root_fsolver_free(Solver);
 
     return logT;
 }
@@ -940,12 +951,19 @@ double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
         if (status != GSL_CONTINUE) break;
     }
 
+    gsl_root_fsolver_free(Solver);
+
     //if (status != GSL_SUCCESS) logT = -1.0;
     assert(status == GSL_SUCCESS); 
-    double logs_int = scvheosLogSofLogRhoLogT(Mat, logrho, logT);
-    assert(fabs(logs-logs_int)/logs < 1e-3);
 
-    gsl_root_fsolver_free(Solver);
+    /* Absolute tolerance in log space, see scvheosLogTofLogRhoLogU. */
+    double logs_int = scvheosLogSofLogRhoLogT(Mat, logrho, logT);
+
+    if (!(fabs(logs-logs_int) < SCVHEOS_INVERT_TOL)) {
+        fprintf(stderr, "scvheosLogTofLogRhoLogS: residual too large: logrho=%15.7E logs=%15.7E logT=%15.7E logs_int=%15.7E\n",
+                logrho, logs, logT, logs_int);
+        SCVHEOS_FAIL_OR_EXIT();
+    }
 
     return logT;
 }
