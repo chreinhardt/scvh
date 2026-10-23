@@ -19,10 +19,12 @@
 #define SCVHEOS_VERSION_PATCH     1
 
 /*
- * Error codes.
+ * Status codes. SCVHEOS_FAIL is a generic failure (initialization, I/O);
+ * it must not collide with the SCVHEOS_OUTSIDE_* codes below, which
+ * scvheosIsInExtrapLimit returns and EOSlib maps one by one.
  */
 #define SCVHEOS_SUCCESS 0
-#define SCVHEOS_FAIL   -1
+#define SCVHEOS_FAIL  -99
 
 /*
  * Value returned by the EOS functions when a lookup or an inversion fails
@@ -50,7 +52,7 @@
 
 
 /*
- * Define error codes.
+ * Return codes of scvheosIsInExtrapLimit (besides SCVHEOS_SUCCESS).
  */
 #define SCVHEOS_OUTSIDE_RHOMIN -1
 #define SCVHEOS_OUTSIDE_RHOMAX -2
