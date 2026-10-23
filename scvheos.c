@@ -933,6 +933,55 @@ double scvheosCsofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
 }
 
 /*
+ * Locate the state (rho, u) in the table: the rho cell j with weight w, and
+ * the T cell i with position t from the inversion of the u column, plus logT.
+ * Shared by scvheosPCTofRhoU and the (rho, u) derivatives.
+ *
+ * Returns 0 on success, -1 (after a message naming chFunc) if the input is
+ * non-finite or non-positive, rho is outside the table, or u is outside the
+ * column or in a non-monotonic column. The caller decides between the
+ * sentinel and exit.
+ */
+static int scvheosLocateRhoU(SCVHEOSMAT *Mat, const char *chFunc, double rho, double u,
+                             int *pj, int *pi, double *pw, double *pt, double *plogT) {
+    const int nT = Mat->nT;
+    const double *a0;
+    double logrho, logu, w;
+    int j, iret;
+
+    if (!(rho > 0.0) || !(u > 0.0) || !isfinite(rho) || !isfinite(u)) {
+        fprintf(stderr, "%s: invalid input rho= %g u= %g.\n", chFunc, rho, u);
+        return -1;
+    }
+
+    logrho = log10(rho);
+    logu = log10(u);
+
+    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax)) {
+        fprintf(stderr, "%s: logrho= %15.7E outside of the EOS table.\n", chFunc, logrho);
+        return -1;
+    }
+
+    j = scvheosFindCell(Mat->dLogRhoAxis, Mat->nRho, logrho, &w);
+    a0 = Mat->dLogUArray + (size_t)j*nT;
+
+    iret = scvheosInvertColumn(Mat->dLogTAxis, nT, a0, a0 + nT, 1, w, logu, plogT, pi, pt);
+
+    if (iret != 0) {
+        const double w0 = 1.0 - w;
+        fprintf(stderr, "%s: logu= %g %s at logrho= %g "
+                "(column u(T_min)= %g u(T_max)= %g).\n", chFunc, logu,
+                (iret == -1) ? "below the table" : (iret == +1) ? "above the table" : "in a non-monotonic column",
+                logrho, w0*a0[0] + w*a0[nT], w0*a0[nT-1] + w*a0[2*nT-1]);
+        return -1;
+    }
+
+    *pj = j;
+    *pw = w;
+    return 0;
+}
+
+/*
  * Calculate the pressure P(rho, u), the sound speed cs(rho, u) and the
  * temperature T(rho, u) from one cell lookup.
  *
@@ -941,49 +990,23 @@ double scvheosCsofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
  * and no detour through GSL. This is the hydro-code entry point (EOSPCTofRhoU)
  * and mirrors ANEOSPCTofRhoU.
  *
- * On failure (non-finite or non-positive input, rho outside the table, u
- * outside the column or in a non-monotonic column) returns SCVHEOS_FAIL_VALUE
- * and sets *c and *T to it as well (or exits without SCVH_NOEXIT).
+ * On failure (see scvheosLocateRhoU) returns SCVHEOS_FAIL_VALUE and sets *c
+ * and *T to it as well (or exits without SCVH_NOEXIT).
  */
 double scvheosPCTofRhoU(SCVHEOSMAT *Mat, double rho, double u, double *c, double *T) {
-    const int nT = Mat->nT;
-    const double *a0;
-    double logrho, logu, logT, w, t;
-    int j, i, iret;
+    double logT, w, t;
+    int j, i;
 
     *c = SCVHEOS_FAIL_VALUE;
     *T = SCVHEOS_FAIL_VALUE;
 
-    if (!(rho > 0.0) || !(u > 0.0) || !isfinite(rho) || !isfinite(u)) {
-        fprintf(stderr, "scvheosPCTofRhoU: invalid input rho= %g u= %g.\n", rho, u);
-        SCVHEOS_FAIL_OR_EXIT();
-    }
-
-    logrho = log10(rho);
-    logu = log10(u);
-
-    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax)) {
-        fprintf(stderr, "scvheosPCTofRhoU: logrho= %15.7E outside of the EOS table.\n", logrho);
-        SCVHEOS_FAIL_OR_EXIT();
-    }
-
-    j = scvheosFindCell(Mat->dLogRhoAxis, Mat->nRho, logrho, &w);
-    a0 = Mat->dLogUArray + (size_t)j*nT;
-
-    iret = scvheosInvertColumn(Mat->dLogTAxis, nT, a0, a0 + nT, 1, w, logu, &logT, &i, &t);
-
-    if (iret != 0) {
-        const double w0 = 1.0 - w;
-        fprintf(stderr, "scvheosPCTofRhoU: logu= %g %s at logrho= %g "
-                "(column u(T_min)= %g u(T_max)= %g).\n", logu,
-                (iret == -1) ? "below the table" : (iret == +1) ? "above the table" : "in a non-monotonic column",
-                logrho, w0*a0[0] + w*a0[nT], w0*a0[nT-1] + w*a0[2*nT-1]);
+    if (scvheosLocateRhoU(Mat, __func__, rho, u, &j, &i, &w, &t, &logT) != 0) {
         SCVHEOS_FAIL_OR_EXIT();
     }
 
     *T = pow(Mat->dLogBase, logT);
-    *c = pow(Mat->dLogBase, scvheosCellValue(Mat->dLogCArray, nT, j, i, w, t));
-    return pow(Mat->dLogBase, scvheosCellValue(Mat->dLogPArray, nT, j, i, w, t));
+    *c = pow(Mat->dLogBase, scvheosCellValue(Mat->dLogCArray, Mat->nT, j, i, w, t));
+    return pow(Mat->dLogBase, scvheosCellValue(Mat->dLogPArray, Mat->nT, j, i, w, t));
 }
 
 /*
@@ -1405,49 +1428,88 @@ double scvheosdSdTofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
 }
 
 /*
- * Calculate dPdrho(rho, u).
+ * Partial derivatives of the bilinear patch (j, i) at (w, t):
+ * dlogP/dlogrho|T, dlogP/dlogT|rho, dlogu/dlogrho|T, dlogu/dlogT|rho.
+ * On a bilinear patch the derivative along one axis is linear in the other
+ * coordinate and jumps at the cell boundaries; this is the same derivative
+ * gsl_interp2d_eval_deriv_* returns, without the accelerator lookups.
  */
-double scvheosdPdRhoofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
-    double h = 1e-6*rho;
-    double dPdRho;
-    double UMinRight;
-    double UMinLeft;
-    double TMin;
+static void scvheosCellPartials(const SCVHEOSMAT *Mat, int j, int i, double w, double t,
+                                double *dlPdlr, double *dlPdlT, double *dludlr, double *dludlT) {
+    const int nT = Mat->nT;
+    const double dlr = Mat->dLogRhoAxis[j+1] - Mat->dLogRhoAxis[j];
+    const double dlT = Mat->dLogTAxis[i+1] - Mat->dLogTAxis[i];
+    const double *P0 = Mat->dLogPArray + (size_t)j*nT + i, *P1 = P0 + nT;
+    const double *U0 = Mat->dLogUArray + (size_t)j*nT + i, *U1 = U0 + nT;
 
-    /* Limit of the EOS table defines the minimum temperature. */
-    TMin = pow(Mat->dLogBase, Mat->dLogTAxis[0]);
-
-    /* Check if (rho-h, u) and (rho+h, u) are inside of the EOS table. */
-    UMinLeft = scvheosUofRhoT(Mat, rho-h, TMin);
-    UMinRight = scvheosUofRhoT(Mat, rho+h, TMin);
-
-    if ((UMinLeft <= u) && (UMinRight <= u)) {
-        /* Both left and right value are smaller than u. */
-        dPdRho = (scvheosPofRhoU(Mat, rho+h, u) - scvheosPofRhoU(Mat, rho-h, u))/(2.0*h);
-    } else if (UMinLeft <= u) {
-        /* Backward finite difference. */
-        dPdRho = (scvheosPofRhoU(Mat, rho, u) - scvheosPofRhoU(Mat, rho-h, u))/h;
-    } else if (UMinRight <= u) {
-        /* Forward finite difference. */
-        dPdRho = (scvheosPofRhoU(Mat, rho+h, u) - scvheosPofRhoU(Mat, rho, u))/h;
-    } else {
-        /* Both points are problematic so h is reduced. */
-        h *= 1e-4;
-        dPdRho = (scvheosPofRhoU(Mat, rho+h, u) - scvheosPofRhoU(Mat, rho-h, u))/(2.0*h);
-    }
-    return dPdRho;
+    *dlPdlr = ((1.0 - t)*(P1[0] - P0[0]) + t*(P1[1] - P0[1]))/dlr;
+    *dlPdlT = ((1.0 - w)*(P0[1] - P0[0]) + w*(P1[1] - P1[0]))/dlT;
+    *dludlr = ((1.0 - t)*(U1[0] - U0[0]) + t*(U1[1] - U0[1]))/dlr;
+    *dludlT = ((1.0 - w)*(U0[1] - U0[0]) + w*(U1[1] - U1[0]))/dlT;
 }
 
 /*
- * Calculate dPdu(rho, u).
+ * Calculate dP/drho at constant u, analytically from the bilinear patch:
+ *
+ *   dP/drho|_u = dP/drho|_T - dP/dT|_rho * (du/drho|_T) / (du/dT|_rho)
+ *
+ * With the tables in log form, dP/drho|_T = (P/rho) dlogP/dlogrho etc., so
+ *
+ *   dP/drho|_u = (P/rho) [dlogP/dlogrho - dlogP/dlogT * dlogu/dlogrho / dlogu/dlogT].
+ *
+ * Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if (rho, u)
+ * cannot be located or du/dT|rho <= 0 in the cell (the heat capacity must be
+ * positive; a non-positive value is a table artefact).
+ */
+double scvheosdPdRhoofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
+    double logT, w, t, P;
+    double dlPdlr, dlPdlT, dludlr, dludlT;
+    int j, i;
+
+    if (scvheosLocateRhoU(Mat, __func__, rho, u, &j, &i, &w, &t, &logT) != 0) {
+        SCVHEOS_FAIL_OR_EXIT();
+    }
+
+    scvheosCellPartials(Mat, j, i, w, t, &dlPdlr, &dlPdlT, &dludlr, &dludlT);
+
+    if (!(dludlT > 0.0)) {
+        fprintf(stderr, "scvheosdPdRhoofRhoU: dlogu/dlogT= %g <= 0 at rho= %g u= %g (cell jRho= %i iT= %i).\n",
+                dludlT, rho, u, j, i);
+        SCVHEOS_FAIL_OR_EXIT();
+    }
+
+    P = pow(Mat->dLogBase, scvheosCellValue(Mat->dLogPArray, Mat->nT, j, i, w, t));
+
+    return P/rho*(dlPdlr - dlPdlT*dludlr/dludlT);
+}
+
+/*
+ * Calculate dP/du at constant rho, analytically from the bilinear patch:
+ *
+ *   dP/du|_rho = dP/dT|_rho / du/dT|_rho = (P/u) dlogP/dlogT / dlogu/dlogT.
+ *
+ * Same failure conditions as scvheosdPdRhoofRhoU.
  */
 double scvheosdPdUofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
-    double h = fabs(1e-5*u);
-    double dPdU;
+    double logT, w, t, P;
+    double dlPdlr, dlPdlT, dludlr, dludlT;
+    int j, i;
 
-    dPdU = (scvheosPofRhoU(Mat, rho, u+h) - scvheosPofRhoU(Mat, rho, u))/h;
+    if (scvheosLocateRhoU(Mat, __func__, rho, u, &j, &i, &w, &t, &logT) != 0) {
+        SCVHEOS_FAIL_OR_EXIT();
+    }
 
-    return dPdU;
+    scvheosCellPartials(Mat, j, i, w, t, &dlPdlr, &dlPdlT, &dludlr, &dludlT);
+
+    if (!(dludlT > 0.0)) {
+        fprintf(stderr, "scvheosdPdUofRhoU: dlogu/dlogT= %g <= 0 at rho= %g u= %g (cell jRho= %i iT= %i).\n",
+                dludlT, rho, u, j, i);
+        SCVHEOS_FAIL_OR_EXIT();
+    }
+
+    P = pow(Mat->dLogBase, scvheosCellValue(Mat->dLogPArray, Mat->nT, j, i, w, t));
+
+    return P/u*dlPdlT/dludlT;
 }
 
 /*
