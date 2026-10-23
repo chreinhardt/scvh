@@ -26,10 +26,10 @@
  *          structs and *_GSL_rootfinder callbacks; SCVHEOS_FAIL = -99;
  *          SCVHEOS_HHE_EXT for id 114 (old name kept as alias).
  */
-#define SCVHEOS_VERSION_TEXT      "1.1.0"
+#define SCVHEOS_VERSION_TEXT      "1.1.1"
 #define SCVHEOS_VERSION_MAJOR     1
 #define SCVHEOS_VERSION_MINOR     1
-#define SCVHEOS_VERSION_PATCH     0
+#define SCVHEOS_VERSION_PATCH     1
 
 /*
  * Status codes. SCVHEOS_FAIL is a generic failure (initialization, I/O);

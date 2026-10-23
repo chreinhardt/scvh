@@ -32,6 +32,20 @@ static double scvheosExp10(double x) {
 }
 
 /*
+ * Range check with roundoff tolerance at the ends. A state on the table edge
+ * converted through 10^x and log10 lands within a few ulps of the bound (and
+ * the edge-roundoff direction depends on the libm), so it is accepted and
+ * clamped onto the bound rather than rejected. NaN and +-inf fail. Returns 1
+ * if *px lies in [lo, hi] after clamping, 0 otherwise.
+ */
+static int scvheosInRange(double *px, double lo, double hi) {
+    const double eps = 1e-13*(1.0 + fabs(*px));
+    if (!(*px >= lo)) { if (*px >= lo - eps) *px = lo; else return 0; }
+    if (!(*px <= hi)) { if (*px <= hi + eps) *px = hi; else return 0; }
+    return 1;
+}
+
+/*
  * Lookup failure handling.
  *
  * The log-space functions return SCVHEOS_FAIL_VALUE when a lookup fails and
@@ -800,8 +814,7 @@ int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
 double scvheosLogPofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     double logP;
 
-    if (!isfinite(logrho) || !isfinite(logT) ||
-        (logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
+    if (!scvheosInRange(&logrho, Mat->LogRhoMin, Mat->LogRhoMax) || !scvheosInRange(&logT, Mat->LogTMin, Mat->LogTMax)) {
 	    fprintf(stderr, "scvheosLogPofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
         SCVHEOS_FAIL_OR_EXIT();
     }
@@ -824,8 +837,7 @@ double scvheosLogPofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
 double scvheosLogUofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     double logu;
 
-    if (!isfinite(logrho) || !isfinite(logT) ||
-        (logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
+    if (!scvheosInRange(&logrho, Mat->LogRhoMin, Mat->LogRhoMax) || !scvheosInRange(&logT, Mat->LogTMin, Mat->LogTMax)) {
 	    fprintf(stderr, "scvheosLogUofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
         SCVHEOS_FAIL_OR_EXIT();
     }
@@ -848,8 +860,7 @@ double scvheosLogUofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
 double scvheosLogSofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     double logs;
 
-    if (!isfinite(logrho) || !isfinite(logT) ||
-        (logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
+    if (!scvheosInRange(&logrho, Mat->LogRhoMin, Mat->LogRhoMax) || !scvheosInRange(&logT, Mat->LogTMin, Mat->LogTMax)) {
 	    fprintf(stderr, "scvheosLogSofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
         SCVHEOS_FAIL_OR_EXIT();
     }
@@ -872,8 +883,7 @@ double scvheosLogSofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
 double scvheosLogCsofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     double logcs;
 
-    if (!isfinite(logrho) || !isfinite(logT) ||
-        (logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
+    if (!scvheosInRange(&logrho, Mat->LogRhoMin, Mat->LogRhoMax) || !scvheosInRange(&logT, Mat->LogTMin, Mat->LogTMax)) {
 	    fprintf(stderr, "scvheosLogCsofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
         SCVHEOS_FAIL_OR_EXIT();
     }
@@ -992,7 +1002,7 @@ static int scvheosLocateRhoU(SCVHEOSMAT *Mat, const char *chFunc, double rho, do
     logrho = log10(rho);
     logu = log10(u);
 
-    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax)) {
+    if (!scvheosInRange(&logrho, Mat->LogRhoMin, Mat->LogRhoMax)) {
         fprintf(stderr, "%s: logrho= %15.7E outside of the EOS table.\n", chFunc, logrho);
         return -1;
     }
@@ -1086,7 +1096,7 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
         SCVHEOS_FAIL_OR_EXIT();
     }
 
-    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax)) {
+    if (!scvheosInRange(&logrho, Mat->LogRhoMin, Mat->LogRhoMax)) {
         fprintf(stderr, "scvheosLogTofLogRhoLogU: logrho= %15.7E outside of the EOS table.\n", logrho);
         SCVHEOS_FAIL_OR_EXIT();
     }
@@ -1131,7 +1141,7 @@ double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
         SCVHEOS_FAIL_OR_EXIT();
     }
 
-    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax)) {
+    if (!scvheosInRange(&logrho, Mat->LogRhoMin, Mat->LogRhoMax)) {
         fprintf(stderr, "scvheosLogTofLogRhoLogS: logrho= %15.7E outside of the EOS table.\n", logrho);
         SCVHEOS_FAIL_OR_EXIT();
     }
@@ -1190,7 +1200,7 @@ double scvheosLogRhoofLogPLogT(SCVHEOSMAT *Mat, double logP, double logT) {
         SCVHEOS_FAIL_OR_EXIT();
     }
 
-    if ((logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
+    if (!scvheosInRange(&logT, Mat->LogTMin, Mat->LogTMax)) {
         fprintf(stderr, "scvheosLogRhoofLogPLogT: logT= %15.7E outside of the EOS table.\n", logT);
         SCVHEOS_FAIL_OR_EXIT();
     }
@@ -1286,7 +1296,7 @@ static double scvheosdLogdLog(SCVHEOSMAT *Mat, const double *Array,
     double w, t;
     int j, i;
 
-    if (!scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
+    if (!scvheosInRange(&logrho, Mat->LogRhoMin, Mat->LogRhoMax) || !scvheosInRange(&logT, Mat->LogTMin, Mat->LogTMax)) {
 	    fprintf(stderr, "%s: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", chFunc, logrho, logT);
         exit(1);
     }
@@ -1353,7 +1363,7 @@ static int scvheosLocateRhoT(SCVHEOSMAT *Mat, const char *chFunc, double rho, do
     }
     logrho = log10(rho);
     logT = log10(T);
-    if (!scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
+    if (!scvheosInRange(&logrho, Mat->LogRhoMin, Mat->LogRhoMax) || !scvheosInRange(&logT, Mat->LogTMin, Mat->LogTMax)) {
         fprintf(stderr, "%s: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", chFunc, logrho, logT);
         return -1;
     }
@@ -1589,10 +1599,14 @@ int scvheosIsInExtrapLimit(SCVHEOSMAT *Mat, double rho, double u) {
     logrho = log10(rho);
     logu = log10(u);
 
-    if (logrho < Mat->LogRhoMin) return SCVHEOS_OUTSIDE_RHOMIN;
-    if (logrho > Mat->LogRhoMax) return SCVHEOS_OUTSIDE_RHOMAX;
-    if (logu < scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMin)) return SCVHEOS_OUTSIDE_TMIN;
-    if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMax)) return SCVHEOS_OUTSIDE_TMAX;
+    /* Same roundoff tolerance at the edges as the lookups themselves. */
+    if (logrho < Mat->LogRhoMin && !scvheosInRange(&logrho, Mat->LogRhoMin, Mat->LogRhoMax)) return SCVHEOS_OUTSIDE_RHOMIN;
+    if (logrho > Mat->LogRhoMax && !scvheosInRange(&logrho, Mat->LogRhoMin, Mat->LogRhoMax)) return SCVHEOS_OUTSIDE_RHOMAX;
+    {
+        const double eps = 1e-13*(1.0 + fabs(logu));
+        if (logu < scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMin) - eps) return SCVHEOS_OUTSIDE_TMIN;
+        if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMax) + eps) return SCVHEOS_OUTSIDE_TMAX;
+    }
 
     return SCVHEOS_SUCCESS;
 }

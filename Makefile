@@ -1,11 +1,14 @@
-
 # Object files from the SCVH EOS library
 SCVHEOS_OBJ = scvheos.o
 
 OBJ = $(SCVHEOS_OBJ)
 
+# The same objects built with -DSCVH_NOEXIT: failed lookups return
+# SCVHEOS_FAIL_VALUE instead of exiting. Only the test suite uses them.
+NOEXIT_OBJ = $(OBJ:.o=.noexit.o)
+
 # Executables
-EXE =
+EXE = testscvheos
 
 # Definitions
 DEFS =
@@ -13,21 +16,32 @@ DEFS =
 # GNU Science library (uncomment if not needed)
 GSL_LIB = -lgsl -lgslcblas
 
-CFLAGS ?= -O3 $(defs) -Wall -std=c99
+CFLAGS ?= -O3 $(DEFS) -Wall -std=c99
 
 LIBS ?= -lm $(GSL_LIB)
 
 default:
 	@echo "Please specify which tool you want to make."
 
-all:
-	default
+all: default
+
+%.noexit.o: %.c
+	$(CC) $(CFLAGS) -DSCVH_NOEXIT -c $< -o $@
 
 #
 # Test the SCVHEOS library.
 #
-testscvheos: testscvheos.o $(OBJ)
-	cc -o testscvheos testscvheos.o $(OBJ) $(LIBS)
+# testscvheos is the test suite (invariants on any table, see testscvheos.c).
+# It needs the non-exiting library for the failure-contract test, so it links
+# scvheos.noexit.o, never the production scvheos.o. Run: ./testscvheos [iMat]
+# with the table in the working directory; the exit status is the number of
+# failed checks.
+#
+testscvheos: testscvheos.noexit.o $(NOEXIT_OBJ)
+	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+check: testscvheos
+	./testscvheos
 
 testscvheosreadtable: testscvheosreadtable.o $(OBJ)
 	cc -o testscvheosreadtable testscvheosreadtable.o $(OBJ) $(LIBS)
@@ -128,8 +142,10 @@ fix_lowt_entropy: fix_lowt_entropy.o $(OBJ)
 calc_rhot_isentropes: calc_rhot_isentropes.o $(OBJ)
 	cc -o calc_rhot_isentropes calc_rhot_isentropes.o $(OBJ) $(LIBS)
 
+.PHONY: default all check clean cleanall
+
 clean:
-	rm $(OBJ)
+	rm -f $(OBJ) $(NOEXIT_OBJ) testscvheos.noexit.o
 
 cleanall:
-	rm $(EXE) $(OBJ) *.o
+	rm -f $(EXE) $(OBJ) $(NOEXIT_OBJ) *.o
