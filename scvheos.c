@@ -49,6 +49,19 @@ static int scvheosFailed(double x) {
 #define SCVHEOS_INVERT_TOL 1e-6
 
 /*
+ * Root finder settings for the inversions logT(logrho, logu),
+ * logT(logrho, logs) and logrho(logP, logT). The unknown is a log10, so an
+ * ABSOLUTE tolerance in log space is a relative tolerance of ln(10)*1e-10 in
+ * T or rho everywhere. A relative tolerance on the log (err_rel with
+ * err_abs = 0, as before) degenerates to zero when the bracket straddles
+ * logT = 0 (T = 1 K) and bisection then runs to the iteration limit.
+ * Bisection halves a bracket of width <= 10 to 1e-10 in ~37 iterations.
+ */
+#define SCVHEOS_ROOT_ERR_ABS 1e-10
+#define SCVHEOS_ROOT_ERR_REL 0.0
+#define SCVHEOS_ROOT_MAX_ITER 200
+
+/*
  * Initalize a material.
  *
  * Initialize the material data, read the EOS tables and convert them to code units if desired.
@@ -761,10 +774,10 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
     const gsl_root_fsolver_type *SolverType;
     gsl_function F;
     struct LogUofLogRhoLogT_GSL_Params Params;
-    const double err_abs = 0.0;
-    const double err_rel = 1e-10;
-    int status;
-    int max_iter = 1000;
+    const double err_abs = SCVHEOS_ROOT_ERR_ABS;
+    const double err_rel = SCVHEOS_ROOT_ERR_REL;
+    int status = GSL_CONTINUE;
+    int max_iter = SCVHEOS_ROOT_MAX_ITER;
     double logT_min, logT_max;
     double logT = 0.0;
 
@@ -847,9 +860,11 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
 
     gsl_root_fsolver_free(Solver);
 
-    //if (status != GSL_SUCCESS) logT = -1.0;
-    // Add stricter tests
-    assert(status == GSL_SUCCESS); 
+    if (status != GSL_SUCCESS) {
+        fprintf(stderr, "scvheosLogTofLogRhoLogU: no convergence after %i iterations "
+                "(logrho= %g logu= %g bracket= [%g, %g]).\n", max_iter, logrho, logu, logT_min, logT_max);
+        SCVHEOS_FAIL_OR_EXIT();
+    }
 
     /*
      * Check the residual with an absolute tolerance in log space. A relative
@@ -879,10 +894,10 @@ double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
     const gsl_root_fsolver_type *SolverType;
     gsl_function F;
     struct LogSofLogRhoLogT_GSL_Params Params;
-    const double err_abs = 0.0;
-    const double err_rel = 1e-10;
-    int status;
-    int max_iter = 1000;
+    const double err_abs = SCVHEOS_ROOT_ERR_ABS;
+    const double err_rel = SCVHEOS_ROOT_ERR_REL;
+    int status = GSL_CONTINUE;
+    int max_iter = SCVHEOS_ROOT_MAX_ITER;
     double logT_min, logT_max;
     double logT = 0.0;
 
@@ -953,8 +968,11 @@ double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
 
     gsl_root_fsolver_free(Solver);
 
-    //if (status != GSL_SUCCESS) logT = -1.0;
-    assert(status == GSL_SUCCESS); 
+    if (status != GSL_SUCCESS) {
+        fprintf(stderr, "scvheosLogTofLogRhoLogS: no convergence after %i iterations "
+                "(logrho= %g logs= %g bracket= [%g, %g]).\n", max_iter, logrho, logs, logT_min, logT_max);
+        SCVHEOS_FAIL_OR_EXIT();
+    }
 
     /* Absolute tolerance in log space, see scvheosLogTofLogRhoLogU. */
     double logs_int = scvheosLogSofLogRhoLogT(Mat, logrho, logT);
@@ -981,10 +999,10 @@ double scvheosLogRhoofLogPLogT(SCVHEOSMAT *Mat, double logP, double logT) {
     const gsl_root_fsolver_type *SolverType;
     gsl_function F;
     struct LogPofLogRhoLogT_GSL_Params Params;
-    const double err_abs = 0.0;
-    const double err_rel = 1e-10;
-    int status;
-    int max_iter = 1000;
+    const double err_abs = SCVHEOS_ROOT_ERR_ABS;
+    const double err_rel = SCVHEOS_ROOT_ERR_REL;
+    int status = GSL_CONTINUE;
+    int max_iter = SCVHEOS_ROOT_MAX_ITER;
     double logrho_min, logrho_max;
     double logrho = 0.0;
 
@@ -1046,12 +1064,13 @@ double scvheosLogRhoofLogPLogT(SCVHEOSMAT *Mat, double logP, double logT) {
      * No convergence: return the failure sentinel. A value such as -1.0 would
      * become a valid-looking density (0.1) after exponentiation.
      */
-    if (status != GSL_SUCCESS) {
-        fprintf(stderr, "scvheosLogRhoofLogPLogT: root finder did not converge (logP= %g logT= %g).\n", logP, logT);
-        logrho = SCVHEOS_FAIL_VALUE;
-    }
-
     gsl_root_fsolver_free(Solver);
+
+    if (status != GSL_SUCCESS) {
+        fprintf(stderr, "scvheosLogRhoofLogPLogT: no convergence after %i iterations "
+                "(logP= %g logT= %g bracket= [%g, %g]).\n", max_iter, logP, logT, logrho_min, logrho_max);
+        SCVHEOS_FAIL_OR_EXIT();
+    }
 
     return logrho;
 }

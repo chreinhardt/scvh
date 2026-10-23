@@ -29,8 +29,8 @@
  * and the library is compiled with SCVH_NOEXIT (without it the functions
  * exit). It is returned both by the log-space functions (in log space) and
  * by the linear-space wrappers (rho, u, T, P, s, cs), so callers can test
- * for x < -1e40 in either case. Without SCVH_NOEXIT the root finders still
- * return this value when they do not converge.
+ * for x < -1e40 in either case. Non-convergence of the root finders is
+ * treated the same way as any other failed lookup.
  */
 #define SCVHEOS_FAIL_VALUE (-1e50)
 
