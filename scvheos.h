@@ -172,6 +172,8 @@ double scvheosCsofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 
 double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u);
 double scvheosCsofRhoU(SCVHEOSMAT *Mat, double rho, double u);
+/* P, cs and T from one cell lookup; the hydro-code entry point. */
+double scvheosPCTofRhoU(SCVHEOSMAT *Mat, double rho, double u, double *c, double *T);
 
 /* Calculate derivatives. */
 double scvheosdLogPdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
