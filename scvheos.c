@@ -19,6 +19,15 @@
 #include "scvheos.h"
 
 /*
+ * 10^x. The tables are base-10 logarithms (log10 is hard-wired in every
+ * forward conversion), so the exponential is fixed too; exp(x ln 10) is
+ * cheaper than pow(10, x) and accurate to an ulp or two.
+ */
+static double scvheosExp10(double x) {
+    return exp(x*M_LN10);
+}
+
+/*
  * Lookup failure handling.
  *
  * The log-space functions return SCVHEOS_FAIL_VALUE when a lookup fails and
@@ -120,8 +129,17 @@ static int scvheosInvertColumn(const double *axis, int n, const double *a0, cons
     double fhi = w0*a0[(size_t)(n-1)*stride] + w*a1[(size_t)(n-1)*stride];
     double df, t;
 
-    if (!(target >= flo)) return -1;
-    if (!(target <= fhi)) return +1;
+    /*
+     * A state on the table edge round-trips through 10^x and log10 with a
+     * few ulps of error, so a target can land just outside [f_0, f_n-1]
+     * (e.g. u(rho, T_max) fed back into T(rho, u)). Tolerate that at the
+     * roundoff level, far below any physical scale, instead of failing.
+     */
+    {
+        const double eps = 1e-13*(1.0 + fabs(target));
+        if (!(target >= flo)) { if (target >= flo - eps) target = flo; else return -1; }
+        if (!(target <= fhi)) { if (target <= fhi + eps) target = fhi; else return +1; }
+    }
 
     while (hi - lo > 1) {
         int mid = lo + (hi - lo)/2;
@@ -225,7 +243,6 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     Mat->dMsolUnit = dMsolUnit;
     Mat->nRho = 0;
     Mat->nT = 0;
-    Mat->dLogBase = 10.0;
 
     /* Reference density, a convention for a gas; see SCVHEOS_RHO0_CGS. */
     Mat->rho0 = SCVHEOS_RHO0_CGS;
@@ -391,9 +408,9 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             logrho0 = 0.5*(Mat->LogRhoMin + Mat->LogRhoMax);
             fprintf(stderr, "scvheosInitMaterial: iMat= %i: reference density %g g/cc outside the "
                     "table [%g, %g] g/cc, using %g g/cc instead.\n", iMat, Mat->rho0,
-                    pow(Mat->dLogBase, Mat->LogRhoMin), pow(Mat->dLogBase, Mat->LogRhoMax),
-                    pow(Mat->dLogBase, logrho0));
-            Mat->rho0 = pow(Mat->dLogBase, logrho0);
+                    scvheosExp10(Mat->LogRhoMin), scvheosExp10(Mat->LogRhoMax),
+                    scvheosExp10(logrho0));
+            Mat->rho0 = scvheosExp10(logrho0);
         }
     }
 
@@ -448,14 +465,9 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
         InterpType = gsl_interp2d_bicubic;
     }
 
-    Mat->xAccP = gsl_interp_accel_alloc();
-    Mat->yAccP = gsl_interp_accel_alloc();
-    Mat->xAccU = gsl_interp_accel_alloc();
-    Mat->yAccU = gsl_interp_accel_alloc();
-    Mat->xAccS = gsl_interp_accel_alloc();
-    Mat->yAccS = gsl_interp_accel_alloc();
-    Mat->xAccCs = gsl_interp_accel_alloc();
-    Mat->yAccCs = gsl_interp_accel_alloc();
+    /* One accelerator pair serves all four tables: they share the axes. */
+    Mat->xAcc = gsl_interp_accel_alloc();
+    Mat->yAcc = gsl_interp_accel_alloc();
 
     /* x corresponts to T and y corresponds to rho. */
     Mat->InterpLogP = gsl_interp2d_alloc(InterpType, Mat->nT, Mat->nRho);
@@ -492,14 +504,8 @@ int scvheosFinalizeMaterial(SCVHEOSMAT *Mat) {
         gsl_interp2d_free(Mat->InterpLogS);
         gsl_interp2d_free(Mat->InterpLogCs);
 
-        gsl_interp_accel_free(Mat->xAccP);
-        gsl_interp_accel_free(Mat->yAccP);
-        gsl_interp_accel_free(Mat->xAccU);
-        gsl_interp_accel_free(Mat->yAccU);
-        gsl_interp_accel_free(Mat->xAccS);
-        gsl_interp_accel_free(Mat->yAccS);
-        gsl_interp_accel_free(Mat->xAccCs);
-        gsl_interp_accel_free(Mat->yAccCs);
+        gsl_interp_accel_free(Mat->xAcc);
+        gsl_interp_accel_free(Mat->yAcc);
 
         free(Mat->dLogRhoAxis);
         free(Mat->dLogTAxis);
@@ -734,8 +740,8 @@ int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
         return SCVHEOS_FAIL;
     }
 
-    for (int j = 0; j < nRho; j++) rhoNode[j] = pow(Mat->dLogBase, Mat->dLogRhoAxis[j]);
-    for (int i = 0; i < nT; i++) TNode[i] = pow(Mat->dLogBase, Mat->dLogTAxis[i]);
+    for (int j = 0; j < nRho; j++) rhoNode[j] = scvheosExp10(Mat->dLogRhoAxis[j]);
+    for (int i = 0; i < nT; i++) TNode[i] = scvheosExp10(Mat->dLogTAxis[i]);
 
     for (int j = 0; j < nRho; j++) {
         const double *logP = Mat->dLogPArray + (size_t)j*nT;   /* column at rho_j, consecutive in T */
@@ -744,8 +750,8 @@ int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
 
         for (int i = 0; i < nT; i++) {
             const double T = TNode[i];
-            const double P = pow(Mat->dLogBase, logP[i]);
-            const double u = pow(Mat->dLogBase, logu[i]);
+            const double P = scvheosExp10(logP[i]);
+            const double u = scvheosExp10(logu[i]);
             /* Along rho the nodes are nT apart, along T they are consecutive. */
             const double dlPdlr = scvheosNodeDeriv(Mat->dLogRhoAxis, nRho, Mat->dLogPArray + i, nT, j);
             const double dlPdlT = scvheosNodeDeriv(Mat->dLogTAxis, nT, logP, 1, i);
@@ -805,7 +811,7 @@ double scvheosLogPofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     }
 
     if (gsl_interp2d_eval_e_extrap(Mat->InterpLogP, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogPArray, logT, logrho,
-			    Mat->xAccP, Mat->yAccP, &logP) != GSL_SUCCESS) {
+			    Mat->xAcc, Mat->yAcc, &logP) != GSL_SUCCESS) {
 	    fprintf(stderr, "scvheosLogPofLogRhoLogT: Interpolation failed (logrho= %15.7E logT= %15.7E).\n", logrho, logT);
         SCVHEOS_FAIL_OR_EXIT();
     }
@@ -829,7 +835,7 @@ double scvheosLogUofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     }
 
     if (gsl_interp2d_eval_e_extrap(Mat->InterpLogU, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogUArray, logT, logrho,
-			    Mat->xAccU, Mat->yAccU, &logu) != GSL_SUCCESS) {
+			    Mat->xAcc, Mat->yAcc, &logu) != GSL_SUCCESS) {
 	    fprintf(stderr, "scvheosLogUofLogRhoLogT: Interpolation failed (logrho= %15.7E logT= %15.7E).\n", logrho, logT);
         SCVHEOS_FAIL_OR_EXIT();
     }
@@ -853,7 +859,7 @@ double scvheosLogSofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     }
 
     if (gsl_interp2d_eval_e_extrap(Mat->InterpLogS, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogSArray, logT, logrho,
-			    Mat->xAccS, Mat->yAccS, &logs) != GSL_SUCCESS) {
+			    Mat->xAcc, Mat->yAcc, &logs) != GSL_SUCCESS) {
 	    fprintf(stderr, "scvheosLogSofLogRhoLogT: Interpolation failed (logrho= %15.7E logT= %15.7E).\n", logrho, logT);
         SCVHEOS_FAIL_OR_EXIT();
     }
@@ -877,7 +883,7 @@ double scvheosLogCsofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
     }
 
     if (gsl_interp2d_eval_e_extrap(Mat->InterpLogCs, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogCArray, logT, logrho,
-			    Mat->xAccCs, Mat->yAccCs, &logcs) != GSL_SUCCESS) {
+			    Mat->xAcc, Mat->yAcc, &logcs) != GSL_SUCCESS) {
 	    fprintf(stderr, "scvheosLogCsofLogRhoLogT: Interpolation failed (logrho= %15.7E logT= %15.7E).\n", logrho, logT);
         SCVHEOS_FAIL_OR_EXIT();
     }
@@ -903,7 +909,7 @@ double scvheosPofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     logP = scvheosLogPofLogRhoLogT(Mat, logrho, logT);
     if (scvheosFailed(logP)) return SCVHEOS_FAIL_VALUE;
 
-    return pow(Mat->dLogBase, logP);
+    return scvheosExp10(logP);
 }
 
 /*
@@ -922,7 +928,7 @@ double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     logu = scvheosLogUofLogRhoLogT(Mat, logrho, logT);
     if (scvheosFailed(logu)) return SCVHEOS_FAIL_VALUE;
 
-    return pow(Mat->dLogBase, logu);
+    return scvheosExp10(logu);
 }
 
 /*
@@ -943,7 +949,7 @@ double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     logs = scvheosLogSofLogRhoLogT(Mat, logrho, logT);
     if (scvheosFailed(logs)) return SCVHEOS_FAIL_VALUE;
 
-    return pow(Mat->dLogBase, logs);
+    return scvheosExp10(logs);
 }
 
 /*
@@ -962,7 +968,7 @@ double scvheosCsofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     logcs = scvheosLogCsofLogRhoLogT(Mat, logrho, logT);
     if (scvheosFailed(logcs)) return SCVHEOS_FAIL_VALUE;
 
-    return pow(Mat->dLogBase, logcs);
+    return scvheosExp10(logcs);
 }
 
 /*
@@ -1037,9 +1043,9 @@ double scvheosPCTofRhoU(SCVHEOSMAT *Mat, double rho, double u, double *c, double
         SCVHEOS_FAIL_OR_EXIT();
     }
 
-    *T = pow(Mat->dLogBase, logT);
-    *c = pow(Mat->dLogBase, scvheosCellValue(Mat->dLogCArray, Mat->nT, j, i, w, t));
-    return pow(Mat->dLogBase, scvheosCellValue(Mat->dLogPArray, Mat->nT, j, i, w, t));
+    *T = scvheosExp10(logT);
+    *c = scvheosExp10(scvheosCellValue(Mat->dLogCArray, Mat->nT, j, i, w, t));
+    return scvheosExp10(scvheosCellValue(Mat->dLogPArray, Mat->nT, j, i, w, t));
 }
 
 /*
@@ -1228,7 +1234,7 @@ double scvheosTofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
     logT = scvheosLogTofLogRhoLogU(Mat, logrho, logu);
     if (scvheosFailed(logT)) return SCVHEOS_FAIL_VALUE;
 
-    return pow(Mat->dLogBase, logT);
+    return scvheosExp10(logT);
 }
 
 /*
@@ -1248,7 +1254,7 @@ double scvheosTofRhoS(SCVHEOSMAT *Mat, double rho, double s) {
     logT = scvheosLogTofLogRhoLogS(Mat, logrho, logs);
     if (scvheosFailed(logT)) return SCVHEOS_FAIL_VALUE;
 
-    return pow(Mat->dLogBase, logT);
+    return scvheosExp10(logT);
 }
 
 /*
@@ -1268,7 +1274,7 @@ double scvheosRhoofPT(SCVHEOSMAT *Mat, double P, double T) {
     logrho = scvheosLogRhoofLogPLogT(Mat, logP, logT);
     if (scvheosFailed(logrho)) return SCVHEOS_FAIL_VALUE;
 
-    return pow(Mat->dLogBase, logrho);
+    return scvheosExp10(logrho);
 }
 
 /*
@@ -1319,7 +1325,7 @@ static double scvheosdLogdLog(SCVHEOSMAT *Mat, const gsl_interp2d *Interp, const
  * Calculate the derivative dlogP/dlogrho(logrho, logT).
  */
 double scvheosdLogPdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    return scvheosdLogdLog(Mat, Mat->InterpLogP, Mat->dLogPArray, Mat->xAccP, Mat->yAccP,
+    return scvheosdLogdLog(Mat, Mat->InterpLogP, Mat->dLogPArray, Mat->xAcc, Mat->yAcc,
                            logrho, logT, TRUE, __func__);
 }
 
@@ -1327,7 +1333,7 @@ double scvheosdLogPdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double lo
  * Calculate the derivative dlogP/dlogT(logrho, logT).
  */
 double scvheosdLogPdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    return scvheosdLogdLog(Mat, Mat->InterpLogP, Mat->dLogPArray, Mat->xAccP, Mat->yAccP,
+    return scvheosdLogdLog(Mat, Mat->InterpLogP, Mat->dLogPArray, Mat->xAcc, Mat->yAcc,
                            logrho, logT, FALSE, __func__);
 }
 
@@ -1335,7 +1341,7 @@ double scvheosdLogPdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT
  * Calculate the derivative dlogu/dlogrho(logrho, logT).
  */
 double scvheosdLogUdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    return scvheosdLogdLog(Mat, Mat->InterpLogU, Mat->dLogUArray, Mat->xAccU, Mat->yAccU,
+    return scvheosdLogdLog(Mat, Mat->InterpLogU, Mat->dLogUArray, Mat->xAcc, Mat->yAcc,
                            logrho, logT, TRUE, __func__);
 }
 
@@ -1343,7 +1349,7 @@ double scvheosdLogUdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double lo
  * Calculate the derivative dlogu/dlogT(logrho, logT).
  */
 double scvheosdLogUdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    return scvheosdLogdLog(Mat, Mat->InterpLogU, Mat->dLogUArray, Mat->xAccU, Mat->yAccU,
+    return scvheosdLogdLog(Mat, Mat->InterpLogU, Mat->dLogUArray, Mat->xAcc, Mat->yAcc,
                            logrho, logT, FALSE, __func__);
 }
 
@@ -1351,7 +1357,7 @@ double scvheosdLogUdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT
  * Calculate the derivative dlogs/dlogrho(logrho, logT).
  */
 double scvheosdLogSdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    return scvheosdLogdLog(Mat, Mat->InterpLogS, Mat->dLogSArray, Mat->xAccS, Mat->yAccS,
+    return scvheosdLogdLog(Mat, Mat->InterpLogS, Mat->dLogSArray, Mat->xAcc, Mat->yAcc,
                            logrho, logT, TRUE, __func__);
 }
 
@@ -1359,7 +1365,7 @@ double scvheosdLogSdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double lo
  * Calculate the derivative dlogs/dlogT(logrho, logT).
  */
 double scvheosdLogSdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    return scvheosdLogdLog(Mat, Mat->InterpLogS, Mat->dLogSArray, Mat->xAccS, Mat->yAccS,
+    return scvheosdLogdLog(Mat, Mat->InterpLogS, Mat->dLogSArray, Mat->xAcc, Mat->yAcc,
                            logrho, logT, FALSE, __func__);
 }
 
@@ -1511,7 +1517,7 @@ double scvheosdPdRhoofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
         SCVHEOS_FAIL_OR_EXIT();
     }
 
-    P = pow(Mat->dLogBase, scvheosCellValue(Mat->dLogPArray, Mat->nT, j, i, w, t));
+    P = scvheosExp10(scvheosCellValue(Mat->dLogPArray, Mat->nT, j, i, w, t));
 
     return P/rho*(dlPdlr - dlPdlT*dludlr/dludlT);
 }
@@ -1540,7 +1546,7 @@ double scvheosdPdUofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
         SCVHEOS_FAIL_OR_EXIT();
     }
 
-    P = pow(Mat->dLogBase, scvheosCellValue(Mat->dLogPArray, Mat->nT, j, i, w, t));
+    P = scvheosExp10(scvheosCellValue(Mat->dLogPArray, Mat->nT, j, i, w, t));
 
     return P/u*dlPdlT/dludlT;
 }

@@ -124,26 +124,17 @@ typedef struct scvheosMat {
     gsl_interp2d *InterpLogS;
     gsl_interp2d *InterpLogCs;
 
-    /* Accelerator */
-    gsl_interp_accel *xAccP;
-    gsl_interp_accel *yAccP;
-    gsl_interp_accel *xAccU;
-    gsl_interp_accel *yAccU;
-    gsl_interp_accel *xAccS;
-    gsl_interp_accel *yAccS;
-    gsl_interp_accel *xAccCs;
-    gsl_interp_accel *yAccCs;
+    /* Accelerator, shared by the four interpolators (same axes). */
+    gsl_interp_accel *xAcc;
+    gsl_interp_accel *yAcc;
 
-    /* The EOS tables are logarithmic.*/
+    /* The EOS tables are base-10 logarithms, laid out A[j*nT + i] (j: rho, i: T). */
     double *dLogRhoAxis;
     double *dLogTAxis;
     double *dLogUArray;
     double *dLogPArray;
     double *dLogSArray;
     double *dLogCArray;
-    
-    /* Base of the logarith. */
-    double dLogBase;
 
     /*
      * Number of lookups that had to fall back to a table edge (currently:
