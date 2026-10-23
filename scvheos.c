@@ -40,6 +40,19 @@ static int scvheosFailed(double x) {
 #endif
 
 /*
+ * Non-fatal warnings for lookups that fall back to a table edge. Off by
+ * default: a gas particle expanding into vacuum hits the T_min edge at
+ * every step, and a message per particle per step would flood stderr.
+ * Mat->nLookupFail counts them regardless; compile with -DSCVHEOS_VERBOSE
+ * to also see each one.
+ */
+#ifdef SCVHEOS_VERBOSE
+#define SCVHEOS_WARN(...) fprintf(stderr, __VA_ARGS__)
+#else
+#define SCVHEOS_WARN(...) ((void)0)
+#endif
+
+/*
  * Absolute tolerance, in log10 space, for the residual of an inversion:
  * |logu(logrho, logT) - logu| after solving for logT, and likewise for logs.
  * 1e-6 in log10 is a relative error of 2.3e-6 in u. The root finders
@@ -969,8 +982,11 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
 /*
  * Calculate the temperature logT(logrho, logs).
  *
- * Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if the input is
- * not finite or the root cannot be bracketed.
+ * logs below s(T_min) or above s(T_max) of the column returns logT_min or
+ * logT_max respectively, counted in Mat->nLookupFail (ANEOSmaterial
+ * convention). Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if
+ * the input is not finite, logrho is outside the table, or the root cannot
+ * be bracketed.
  */
 double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
     /* GSL root finder */
@@ -1009,15 +1025,37 @@ double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
     logT_min = Mat->LogTMin;
     logT_max = Mat->LogTMax;
 
-    /* Check if logs < logs(logrho, logT_min) or logs > logs(logrho, logT_max) and set a minimum or maximum value. */
-    if (logs < scvheosLogSofLogRhoLogT(Mat, logrho, logT_min)) {
-        gsl_root_fsolver_free(Solver);
-        return logT_min;
-    }
+    /*
+     * logs outside the column [s(T_min), s(T_max)]: clamp to the table edge,
+     * the convention ANEOSisentropicU uses (cold curve u(rho2, T_min) when S
+     * is not attained at rho2). Unlike there the fallback is counted in
+     * Mat->nLookupFail and reported with SCVHEOS_WARN rather than silent.
+     * A failed bound lookup (rho outside the table) is still an error.
+     */
+    {
+        double logs_min = scvheosLogSofLogRhoLogT(Mat, logrho, logT_min);
+        double logs_max = scvheosLogSofLogRhoLogT(Mat, logrho, logT_max);
 
-    if (logs > scvheosLogSofLogRhoLogT(Mat, logrho, logT_max)) {
-        gsl_root_fsolver_free(Solver);
-        return logT_max;
+        if (scvheosFailed(logs_min) || scvheosFailed(logs_max)) {
+            gsl_root_fsolver_free(Solver);
+            SCVHEOS_FAIL_OR_EXIT();
+        }
+
+        if (!(logs >= logs_min)) {
+            Mat->nLookupFail++;
+            SCVHEOS_WARN("scvheosLogTofLogRhoLogS: logs= %g below s(T_min)= %g at logrho= %g, "
+                         "falling back to logT_min= %g\n", logs, logs_min, logrho, logT_min);
+            gsl_root_fsolver_free(Solver);
+            return logT_min;
+        }
+
+        if (!(logs <= logs_max)) {
+            Mat->nLookupFail++;
+            SCVHEOS_WARN("scvheosLogTofLogRhoLogS: logs= %g above s(T_max)= %g at logrho= %g, "
+                         "falling back to logT_max= %g\n", logs, logs_max, logrho, logT_max);
+            gsl_root_fsolver_free(Solver);
+            return logT_max;
+        }
     }
 
     /* Make sure the root is bracketed.*/
@@ -1456,7 +1494,11 @@ double scvheosdPdUofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
 /*
  * Calculate u2 so that (rho1, u1) and (rho2, u2) are on the same isentrope.
  *
- * Returns SCVHEOS_FAIL_VALUE if any of the lookups fails.
+ * If the entropy S(rho1, u1) is not attained at rho2 the state is clamped to
+ * the table edge: u(rho2, T_min) (the cold curve) when it would fall below
+ * the table, u(rho2, T_max) above it. This follows ANEOSisentropicU; the
+ * fallback is counted in Mat->nLookupFail. Returns SCVHEOS_FAIL_VALUE if
+ * rho1 or rho2 is outside the table or (rho1, u1) cannot be inverted.
  */
 double scvheosIsentropicU(SCVHEOSMAT *Mat, double rho1, double u1, double rho2) {
     double T1;

@@ -111,6 +111,13 @@ typedef struct scvheosMat {
     
     /* Base of the logarith. */
     double dLogBase;
+
+    /*
+     * Number of lookups that had to fall back to a table edge (currently:
+     * scvheosLogTofLogRhoLogS clamping to T_min/T_max). Same role as
+     * nLookupFail in ANEOSmaterial. Only incremented, never reset.
+     */
+    long nLookupFail;
 } SCVHEOSMAT;
 
 /* Data structure needed for the GSL root finder. */
