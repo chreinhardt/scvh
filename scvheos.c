@@ -467,7 +467,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     gsl_interp2d_init(Mat->InterpLogU, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogUArray, Mat->nT, Mat->nRho);
     gsl_interp2d_init(Mat->InterpLogS, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogSArray, Mat->nT, Mat->nRho);
 
-    /* The sound speed can only be calculated after the interpolation in P and u is initialized. */
+    /* The sound speed table is built from dLogPArray/dLogUArray directly; it only needs the tables in code units. */
     if (scvheosGenerateSoundSpeedTable(Mat) != SCVHEOS_SUCCESS) {
         fprintf(stderr, "scvheosInitMaterial: Could not generate table for sound speed.\n");
         scvheosFinalizeMaterial(Mat);
@@ -666,8 +666,27 @@ cleanup:
 }
 
 /*
+ * Derivative of f at node k of a strictly increasing axis x[0..n-1] by the
+ * second-order central difference on a (possibly non-uniform) grid,
+ *
+ *   f'(x_k) = [h0^2 f_k+1 - h1^2 f_k-1 + (h1^2 - h0^2) f_k] / (h0 h1 (h0 + h1)),
+ *   h0 = x_k - x_k-1,  h1 = x_k+1 - x_k,
+ *
+ * and the one-sided difference at the two ends. f is accessed with a stride.
+ */
+static double scvheosNodeDeriv(const double *x, int n, const double *f, int stride, int k) {
+    if (k == 0)     return (f[stride] - f[0])/(x[1] - x[0]);
+    if (k == n - 1) return (f[(size_t)k*stride] - f[(size_t)(k-1)*stride])/(x[k] - x[k-1]);
+    {
+        const double h0 = x[k] - x[k-1], h1 = x[k+1] - x[k];
+        const double fm = f[(size_t)(k-1)*stride], f0 = f[(size_t)k*stride], fp = f[(size_t)(k+1)*stride];
+        return (h0*h0*fp - h1*h1*fm + (h1*h1 - h0*h0)*f0)/(h0*h1*(h0 + h1));
+    }
+}
+
+/*
  * Generate an array that contains the sound speed at each EOS table data point.
- * 
+ *
  * The sound speed is calculated from
  *
  * cs^2 = dP/drho + T/(rho^2*C_v)*(dP/dT)^2
@@ -676,8 +695,10 @@ cleanup:
  *
  * c_v = du/dT
  *
- * is the specific heat capacity at constant volume. The derivatives are obtained
- * numerically.
+ * is the specific heat capacity at constant volume. The derivatives are the
+ * central differences of the log tables on the grid (second order, symmetric
+ * about the node), taken directly from dLogPArray and dLogUArray:
+ * dP/drho = (P/rho) dlogP/dlogrho, dP/dT = (P/T) dlogP/dlogT, c_v = (u/T) dlogu/dlogT.
  *
  * Where the table is defective (c_v <= 0 or a negative cs^2, which happens
  * e.g. in the H-He/H2O Z=0.05 table) cs^2 is replaced by P/rho at the node:
@@ -688,42 +709,51 @@ cleanup:
  * replaced nodes is reported on stderr.
  */
 int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
-    double rho;
-    double T;
-    double P;
-    double dPdrho;
-    double dPdT;
-    double cv;
-    double cs2;
+    const int nT = Mat->nT, nRho = Mat->nRho;
+    double *rhoNode, *TNode;
     int nReplaced = 0;
     const int nReport = 10;   /* print at most this many defective nodes */
 
     if (Mat == NULL)
         return SCVHEOS_FAIL;
-    
-    if ((Mat->dLogRhoAxis == NULL) || (Mat->dLogTAxis == NULL))
+
+    if ((Mat->dLogRhoAxis == NULL) || (Mat->dLogTAxis == NULL) || (Mat->dLogPArray == NULL) || (Mat->dLogUArray == NULL))
         return SCVHEOS_FAIL;
 
     if (Mat->dLogCArray != NULL)
         return SCVHEOS_FAIL;
 
     /* The GSL interpolation functions require the tables are 1D arrays. */
-    Mat->dLogCArray = (double *) calloc(Mat->nT*Mat->nRho, sizeof(double));
+    Mat->dLogCArray = (double *) calloc((size_t)nT*nRho, sizeof(double));
+    rhoNode = (double *) malloc((size_t)nRho*sizeof(double));
+    TNode = (double *) malloc((size_t)nT*sizeof(double));
 
-    if (Mat->dLogCArray == NULL)
+    if ((Mat->dLogCArray == NULL) || (rhoNode == NULL) || (TNode == NULL)) {
+        free(rhoNode);
+        free(TNode);
         return SCVHEOS_FAIL;
+    }
 
-    for (int i=0; i<Mat->nT; i++) {
-        for (int j=0; j<Mat->nRho; j++) {
-            rho = pow(Mat->dLogBase, Mat->dLogRhoAxis[j]);
-            T = pow(Mat->dLogBase, Mat->dLogTAxis[i]);
-            P = pow(Mat->dLogBase, Mat->dLogPArray[j*Mat->nT+i]);
+    for (int j = 0; j < nRho; j++) rhoNode[j] = pow(Mat->dLogBase, Mat->dLogRhoAxis[j]);
+    for (int i = 0; i < nT; i++) TNode[i] = pow(Mat->dLogBase, Mat->dLogTAxis[i]);
 
-            dPdrho = scvheosdPdRhoofRhoT(Mat, rho, T);
-            dPdT = scvheosdPdTofRhoT(Mat, rho, T);
-            cv = scvheosdUdTofRhoT(Mat, rho, T);
+    for (int j = 0; j < nRho; j++) {
+        const double *logP = Mat->dLogPArray + (size_t)j*nT;   /* column at rho_j, consecutive in T */
+        const double *logu = Mat->dLogUArray + (size_t)j*nT;
+        const double rho = rhoNode[j];
 
-            cs2 = dPdrho + T/(rho*rho*cv)*dPdT*dPdT;
+        for (int i = 0; i < nT; i++) {
+            const double T = TNode[i];
+            const double P = pow(Mat->dLogBase, logP[i]);
+            const double u = pow(Mat->dLogBase, logu[i]);
+            /* Along rho the nodes are nT apart, along T they are consecutive. */
+            const double dlPdlr = scvheosNodeDeriv(Mat->dLogRhoAxis, nRho, Mat->dLogPArray + i, nT, j);
+            const double dlPdlT = scvheosNodeDeriv(Mat->dLogTAxis, nT, logP, 1, i);
+            const double dludlT = scvheosNodeDeriv(Mat->dLogTAxis, nT, logu, 1, i);
+            const double dPdrho = P/rho*dlPdlr;
+            const double dPdT = P/T*dlPdlT;
+            const double cv = u/T*dludlT;
+            double cs2 = dPdrho + T/(rho*rho*cv)*dPdT*dPdT;
 
             /* Defective node: non-finite (cv = 0), or not positive. */
             if (!isfinite(cs2) || !(cs2 > 0.0)) {
@@ -740,13 +770,16 @@ int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
             /* P/rho > 0 at every node (the table stores log P), so this is finite. */
             assert(isfinite(cs2) && cs2 > 0.0);
 
-            Mat->dLogCArray[j*Mat->nT+i] = 0.5*log10(cs2);
+            Mat->dLogCArray[(size_t)j*nT + i] = 0.5*log10(cs2);
         }
     }
 
+    free(rhoNode);
+    free(TNode);
+
     if (nReplaced > 0) {
         fprintf(stderr, "scvheosGenerateSoundSpeedTable: iMat= %i: cs^2 replaced by P/rho at %i of %i nodes.\n",
-                Mat->iMat, nReplaced, Mat->nT*Mat->nRho);
+                Mat->iMat, nReplaced, nT*nRho);
     }
 
     return SCVHEOS_SUCCESS;
