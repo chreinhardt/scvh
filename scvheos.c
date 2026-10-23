@@ -16,7 +16,6 @@
 #include <gsl/gsl_errno.h>
 #include <gsl/gsl_math.h>
 #include <gsl/gsl_interp2d.h>
-#include <gsl/gsl_roots.h>
 #include "scvheos.h"
 
 /*
@@ -53,26 +52,90 @@ static int scvheosFailed(double x) {
 #endif
 
 /*
- * Absolute tolerance, in log10 space, for the residual of an inversion:
- * |logu(logrho, logT) - logu| after solving for logT, and likewise for logs.
- * 1e-6 in log10 is a relative error of 2.3e-6 in u. The root finders
- * converge to 1e-10 in logT, so a residual above this means the solution is
- * not a root (non-monotonic column, or the bracket closed on a jump).
+ * Direct inversion of the bilinear interpolant.
+ *
+ * The tables are bilinear in (logT, logrho). At fixed logrho (between the
+ * rho nodes j and j+1, weight w) the interpolant is PIECEWISE LINEAR in
+ * logT with node values
+ *
+ *     f_i = (1-w) A[j][i] + w A[j+1][i],   i = 0 .. nT-1,
+ *
+ * and likewise at fixed logT it is piecewise linear in logrho. So f = target
+ * is solved exactly: locate the segment [i, i+1] with f_i <= target <= f_i+1
+ * by bisection on the node index (log2(n) steps, two array reads each) and
+ * invert the linear segment in closed form. This replaces the GSL root
+ * finder (allocation + ~37 interpolations per call) and has no tolerance.
+ *
+ * Both require the same thing the root finder assumed: f_i increases with
+ * i along the searched axis. Where a column is not monotonic the bisection
+ * lands on a segment that does not contain the target and that is reported.
  */
-#define SCVHEOS_INVERT_TOL 1e-6
 
 /*
- * Root finder settings for the inversions logT(logrho, logu),
- * logT(logrho, logs) and logrho(logP, logT). The unknown is a log10, so an
- * ABSOLUTE tolerance in log space is a relative tolerance of ln(10)*1e-10 in
- * T or rho everywhere. A relative tolerance on the log (err_rel with
- * err_abs = 0, as before) degenerates to zero when the bracket straddles
- * logT = 0 (T = 1 K) and bisection then runs to the iteration limit.
- * Bisection halves a bracket of width <= 10 to 1e-10 in ~37 iterations.
+ * Locate x in a strictly increasing axis of n >= 2 nodes. Returns j with
+ * axis[j] <= x <= axis[j+1], 0 <= j <= n-2, and the weight
+ * w = (x - axis[j]) / (axis[j+1] - axis[j]) in [0, 1]. At x == axis[n-1]
+ * the last cell is returned with w = 1, the convention GSL uses, so the
+ * two interpolants agree on the whole closed interval.
+ * The caller guarantees axis[0] <= x <= axis[n-1].
  */
-#define SCVHEOS_ROOT_ERR_ABS 1e-10
-#define SCVHEOS_ROOT_ERR_REL 0.0
-#define SCVHEOS_ROOT_MAX_ITER 200
+static int scvheosFindCell(const double *axis, int n, double x, double *w) {
+    int lo = 0;
+    int hi = n - 1;
+
+    while (hi - lo > 1) {
+        int mid = lo + (hi - lo)/2;
+        if (axis[mid] <= x) lo = mid; else hi = mid;
+    }
+    *w = (x - axis[lo])/(axis[lo+1] - axis[lo]);
+    return lo;
+}
+
+/*
+ * Solve f(x) = target along one axis of the table, where the node values
+ * are f_i = (1-w) a0[i*stride] + w a1[i*stride] for the n nodes axis[0..n-1].
+ *
+ * For an inversion along T at fixed logrho: axis = dLogTAxis, n = nT,
+ * a0 = Array + j*nT, a1 = a0 + nT, stride = 1 (consecutive T nodes).
+ * For an inversion along rho at fixed logT: axis = dLogRhoAxis, n = nRho,
+ * a0 = Array + i, a1 = a0 + 1, stride = nT (consecutive rho nodes).
+ *
+ * Returns  0 and *px on success,
+ *         -1 if target < f_0       (below the table along this axis),
+ *         +1 if target > f_{n-1}   (above the table along this axis),
+ *         -2 if the located segment does not bracket the target, which
+ *            happens only when f is not monotonically increasing.
+ * On a flat segment (f_i == f_i+1 == target) the lower node is returned.
+ */
+static int scvheosInvertColumn(const double *axis, int n, const double *a0, const double *a1,
+                               int stride, double w, double target, double *px) {
+    const double w0 = 1.0 - w;
+    int lo = 0;
+    int hi = n - 1;
+    double flo = w0*a0[0] + w*a1[0];
+    double fhi = w0*a0[(size_t)(n-1)*stride] + w*a1[(size_t)(n-1)*stride];
+    double df, t;
+
+    if (!(target >= flo)) return -1;
+    if (!(target <= fhi)) return +1;
+
+    while (hi - lo > 1) {
+        int mid = lo + (hi - lo)/2;
+        double fm = w0*a0[(size_t)mid*stride] + w*a1[(size_t)mid*stride];
+        if (fm <= target) { lo = mid; flo = fm; } else { hi = mid; fhi = fm; }
+    }
+
+    /* On a monotonic column flo <= target <= fhi holds here by construction. */
+    if (!(flo <= target) || !(target <= fhi)) return -2;
+
+    df = fhi - flo;
+    t = (df > 0.0) ? (target - flo)/df : 0.0;
+    if (t < 0.0) t = 0.0;
+    if (t > 1.0) t = 1.0;
+
+    *px = axis[lo] + t*(axis[hi] - axis[lo]);
+    return 0;
+}
 
 /*
  * Initalize a material.
@@ -869,23 +932,19 @@ double scvheosCsofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
 }
 
 /*
- * Calculate the temperature logT(logrho, logu).
+ * Calculate the temperature logT(logrho, logu) by direct inversion of the
+ * u column at logrho (see scvheosInvertColumn).
  *
  * Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if the input is
- * not finite or the root cannot be bracketed.
+ * not finite, logrho is outside the table, logu is outside the column
+ * [u(T_min), u(T_max)], or the column is not monotonic at logu.
  */
 double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
-    /* GSL root finder */
-    gsl_root_fsolver *Solver;
-    const gsl_root_fsolver_type *SolverType;
-    gsl_function F;
-    struct LogUofLogRhoLogT_GSL_Params Params;
-    const double err_abs = SCVHEOS_ROOT_ERR_ABS;
-    const double err_rel = SCVHEOS_ROOT_ERR_REL;
-    int status = GSL_CONTINUE;
-    int max_iter = SCVHEOS_ROOT_MAX_ITER;
-    double logT_min, logT_max;
-    double logT = 0.0;
+    const int nT = Mat->nT;
+    const double *a0;
+    double w;
+    double logT;
+    int j, iret;
 
     /* log10 of a non-positive rho or u is NaN/-inf: nothing to invert. */
     if (!isfinite(logrho) || !isfinite(logu)) {
@@ -893,315 +952,130 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
         SCVHEOS_FAIL_OR_EXIT();
     }
 
-    /* Initialize the parameters. */
-    Params.Mat = Mat;
-    Params.logrho = logrho;
-    Params.logu = logu;
-
-    /* Initialize the function used for root finding. */
-    F.function = &LogUofLogRhoLogT_GSL_rootfinder;
-    F.params = &Params;
-
-    /* Initialize the root finder. */
-    SolverType = gsl_root_fsolver_brent;
-    SolverType = gsl_root_fsolver_bisection;
-    Solver = gsl_root_fsolver_alloc(SolverType);
-    assert(Solver != NULL);
-
-    /* Set minimum and maximum temperature. */ 
-    logT_min = Mat->LogTMin;
-    logT_max = Mat->LogTMax;
-
-    /* Check if logu < logu(logrho, logT_min) or logu > logu(logrho, logT_max) and set a minimum or maximum value. */
-#if 0
-    if (logu < scvheosLogUofLogRhoLogT(Mat, logrho, logT_min)) return logT_min;
-    if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, logT_max)) return logT_max;
-#endif
-    /*
-    /// CR: Careful, this assumes that u(T) is monotonic AND u(T_min) < u(T_max)
-    if (logu < scvheosLogUofLogRhoLogT(Mat, logrho, logT_min)) assert(logu >= scvheosLogUofLogRhoLogT(Mat, logrho, logT_min));
-    if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, logT_max)) assert(logu <= scvheosLogUofLogRhoLogT(Mat, logrho, logT_max));
-    */
-
-    /* Make sure the root is bracketed.*/
-    if (!(LogUofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogUofLogRhoLogT_GSL_rootfinder(logT_max, &Params) <= 0.0)) {
-        // CR: 04.10.2022
-        fprintf(stderr, "scvheosLogTofLogRhoLogU:\n");
-
-        fprintf(stderr, "logrho= %g ", logrho);
-        fprintf(stderr, "logu= %g\n", logu);
-        fprintf(stderr, "LogTMin= %g ", Mat->LogTMin);
-        fprintf(stderr, "LogTMax= %g\n", Mat->LogTMax);
-        fprintf(stderr, "loguMin= %g\n", scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMin));
-        fprintf(stderr, "loguMax= %g\n", scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMax));
-        fprintf(stderr, "loguMax= %g\n", LogUofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogUofLogRhoLogT_GSL_rootfinder(logT_max, &Params));
-
-        fprintf(stderr, "Could not bracket root.\n");
-        gsl_root_fsolver_free(Solver);
+    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax)) {
+        fprintf(stderr, "scvheosLogTofLogRhoLogU: logrho= %15.7E outside of the EOS table.\n", logrho);
         SCVHEOS_FAIL_OR_EXIT();
     }
 
-    gsl_root_fsolver_set(Solver, &F, logT_min, logT_max);
+    j = scvheosFindCell(Mat->dLogRhoAxis, Mat->nRho, logrho, &w);
+    a0 = Mat->dLogUArray + (size_t)j*nT;
 
-    for (int i=0; i<max_iter; i++) {
-        /* Do one iteration of the root solver. */
-        status = gsl_root_fsolver_iterate(Solver);
+    iret = scvheosInvertColumn(Mat->dLogTAxis, nT, a0, a0 + nT, 1, w, logu, &logT);
 
-        /* Estimate of the root. */
-        logT = gsl_root_fsolver_root(Solver);
-
-        /* Current interval that brackets the root. */
-        logT_min = gsl_root_fsolver_x_lower(Solver);
-        logT_max = gsl_root_fsolver_x_upper(Solver);
-
-        /* Test for convergence. */
-        status = gsl_root_test_interval(logT_min, logT_max, err_abs, err_rel);
-
-#if 0
-        if (status == GSL_SUCCESS)
-            fprintf(stderr, "Converged: x= %g\n", x);
-#endif
-        if (status != GSL_CONTINUE) break;
-    }
-
-    gsl_root_fsolver_free(Solver);
-
-    if (status != GSL_SUCCESS) {
-        fprintf(stderr, "scvheosLogTofLogRhoLogU: no convergence after %i iterations "
-                "(logrho= %g logu= %g bracket= [%g, %g]).\n", max_iter, logrho, logu, logT_min, logT_max);
+    if (iret != 0) {
+        const double w0 = 1.0 - w;
+        fprintf(stderr, "scvheosLogTofLogRhoLogU: logu= %g %s at logrho= %g "
+                "(column u(T_min)= %g u(T_max)= %g, logT in [%g, %g]).\n", logu,
+                (iret == -1) ? "below the table" : (iret == +1) ? "above the table" : "in a non-monotonic column",
+                logrho, w0*a0[0] + w*a0[nT], w0*a0[nT-1] + w*a0[2*nT-1], Mat->LogTMin, Mat->LogTMax);
         SCVHEOS_FAIL_OR_EXIT();
     }
 
-    /*
-     * Check the residual with an absolute tolerance in log space. A relative
-     * test fabs(logu-logu_int)/logu is sign dependent: it always passes for
-     * logu < 0 (common in code units) and fails spuriously for 0 < logu << 1.
-     */
-    double logu_int = scvheosLogUofLogRhoLogT(Mat, logrho, logT);
-
-    if (!(fabs(logu-logu_int) < SCVHEOS_INVERT_TOL)) {
-        fprintf(stderr, "scvheosLogTofLogRhoLogU: residual too large: logrho=%15.7E logu=%15.7E logT=%15.7E logu_int=%15.7E\n",
-                logrho, logu, logT, logu_int);
-        SCVHEOS_FAIL_OR_EXIT();
-    }
 
     return logT;
 }
 
 /*
- * Calculate the temperature logT(logrho, logs).
+ * Calculate the temperature logT(logrho, logs) by direct inversion of the
+ * s column at logrho (see scvheosInvertColumn).
  *
  * logs below s(T_min) or above s(T_max) of the column returns logT_min or
  * logT_max respectively, counted in Mat->nLookupFail (ANEOSmaterial
  * convention). Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if
- * the input is not finite, logrho is outside the table, or the root cannot
- * be bracketed.
+ * the input is not finite, logrho is outside the table, or the column is
+ * not monotonic at logs.
  */
 double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
-    /* GSL root finder */
-    gsl_root_fsolver *Solver;
-    const gsl_root_fsolver_type *SolverType;
-    gsl_function F;
-    struct LogSofLogRhoLogT_GSL_Params Params;
-    const double err_abs = SCVHEOS_ROOT_ERR_ABS;
-    const double err_rel = SCVHEOS_ROOT_ERR_REL;
-    int status = GSL_CONTINUE;
-    int max_iter = SCVHEOS_ROOT_MAX_ITER;
-    double logT_min, logT_max;
-    double logT = 0.0;
+    const int nT = Mat->nT;
+    const double *a0;
+    double w;
+    double logT;
+    int j, iret;
 
     if (!isfinite(logrho) || !isfinite(logs)) {
         fprintf(stderr, "scvheosLogTofLogRhoLogS: invalid input logrho= %g logs= %g.\n", logrho, logs);
         SCVHEOS_FAIL_OR_EXIT();
     }
 
-    /* Initialize the parameters. */
-    Params.Mat = Mat;
-    Params.logrho = logrho;
-    Params.logs = logs;
+    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax)) {
+        fprintf(stderr, "scvheosLogTofLogRhoLogS: logrho= %15.7E outside of the EOS table.\n", logrho);
+        SCVHEOS_FAIL_OR_EXIT();
+    }
 
-    /* Initialize the function used for root finding. */
-    F.function = &LogSofLogRhoLogT_GSL_rootfinder;
-    F.params = &Params;
+    j = scvheosFindCell(Mat->dLogRhoAxis, Mat->nRho, logrho, &w);
+    a0 = Mat->dLogSArray + (size_t)j*nT;
 
-    /* Initialize the root finder. */
-    SolverType = gsl_root_fsolver_brent;
-    SolverType = gsl_root_fsolver_bisection;
-    Solver = gsl_root_fsolver_alloc(SolverType);
-    assert(Solver != NULL);
-
-    /* Set minimum and maximum temperature. */ 
-    logT_min = Mat->LogTMin;
-    logT_max = Mat->LogTMax;
+    iret = scvheosInvertColumn(Mat->dLogTAxis, nT, a0, a0 + nT, 1, w, logs, &logT);
 
     /*
      * logs outside the column [s(T_min), s(T_max)]: clamp to the table edge,
      * the convention ANEOSisentropicU uses (cold curve u(rho2, T_min) when S
      * is not attained at rho2). Unlike there the fallback is counted in
      * Mat->nLookupFail and reported with SCVHEOS_WARN rather than silent.
-     * A failed bound lookup (rho outside the table) is still an error.
      */
-    {
-        double logs_min = scvheosLogSofLogRhoLogT(Mat, logrho, logT_min);
-        double logs_max = scvheosLogSofLogRhoLogT(Mat, logrho, logT_max);
-
-        if (scvheosFailed(logs_min) || scvheosFailed(logs_max)) {
-            gsl_root_fsolver_free(Solver);
-            SCVHEOS_FAIL_OR_EXIT();
-        }
-
-        if (!(logs >= logs_min)) {
-            Mat->nLookupFail++;
-            SCVHEOS_WARN("scvheosLogTofLogRhoLogS: logs= %g below s(T_min)= %g at logrho= %g, "
-                         "falling back to logT_min= %g\n", logs, logs_min, logrho, logT_min);
-            gsl_root_fsolver_free(Solver);
-            return logT_min;
-        }
-
-        if (!(logs <= logs_max)) {
-            Mat->nLookupFail++;
-            SCVHEOS_WARN("scvheosLogTofLogRhoLogS: logs= %g above s(T_max)= %g at logrho= %g, "
-                         "falling back to logT_max= %g\n", logs, logs_max, logrho, logT_max);
-            gsl_root_fsolver_free(Solver);
-            return logT_max;
-        }
+    if (iret == -1) {
+        Mat->nLookupFail++;
+        SCVHEOS_WARN("scvheosLogTofLogRhoLogS: logs= %g below s(T_min)= %g at logrho= %g, "
+                     "falling back to logT_min= %g\n", logs, (1.0 - w)*a0[0] + w*a0[nT], logrho, Mat->LogTMin);
+        return Mat->LogTMin;
     }
 
-    /* Make sure the root is bracketed.*/
-    if (!(LogSofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogSofLogRhoLogT_GSL_rootfinder(logT_max, &Params) <= 0.0)) {
-        fprintf(stderr, "scvheosLogTofLogRhoLogS: Could not bracket root (logrho= %g logs= %g).\n", logrho, logs);
-        gsl_root_fsolver_free(Solver);
+    if (iret == +1) {
+        Mat->nLookupFail++;
+        SCVHEOS_WARN("scvheosLogTofLogRhoLogS: logs= %g above s(T_max)= %g at logrho= %g, "
+                     "falling back to logT_max= %g\n", logs, (1.0 - w)*a0[nT-1] + w*a0[2*nT-1], logrho, Mat->LogTMax);
+        return Mat->LogTMax;
+    }
+
+    if (iret != 0) {
+        fprintf(stderr, "scvheosLogTofLogRhoLogS: s column not monotonic at logs= %g logrho= %g.\n", logs, logrho);
         SCVHEOS_FAIL_OR_EXIT();
     }
 
-    gsl_root_fsolver_set(Solver, &F, logT_min, logT_max);
-
-    for (int i=0; i<max_iter; i++) {
-        /* Do one iteration of the root solver. */
-        status = gsl_root_fsolver_iterate(Solver);
-
-        /* Estimate of the root. */
-        logT = gsl_root_fsolver_root(Solver);
-
-        /* Current interval that brackets the root. */
-        logT_min = gsl_root_fsolver_x_lower(Solver);
-        logT_max = gsl_root_fsolver_x_upper(Solver);
-
-        /* Test for convergence. */
-        status = gsl_root_test_interval(logT_min, logT_max, err_abs, err_rel);
-
-#if 0
-        if (status == GSL_SUCCESS)
-            fprintf(stderr, "Converged: x= %g\n", x);
-#endif
-        if (status != GSL_CONTINUE) break;
-    }
-
-    gsl_root_fsolver_free(Solver);
-
-    if (status != GSL_SUCCESS) {
-        fprintf(stderr, "scvheosLogTofLogRhoLogS: no convergence after %i iterations "
-                "(logrho= %g logs= %g bracket= [%g, %g]).\n", max_iter, logrho, logs, logT_min, logT_max);
-        SCVHEOS_FAIL_OR_EXIT();
-    }
-
-    /* Absolute tolerance in log space, see scvheosLogTofLogRhoLogU. */
-    double logs_int = scvheosLogSofLogRhoLogT(Mat, logrho, logT);
-
-    if (!(fabs(logs-logs_int) < SCVHEOS_INVERT_TOL)) {
-        fprintf(stderr, "scvheosLogTofLogRhoLogS: residual too large: logrho=%15.7E logs=%15.7E logT=%15.7E logs_int=%15.7E\n",
-                logrho, logs, logT, logs_int);
-        SCVHEOS_FAIL_OR_EXIT();
-    }
 
     return logT;
 }
 
 /*
- * Calculate the density logrho(logP, logT).
+ * Calculate the density logrho(logP, logT) by direct inversion of the P row
+ * at logT (see scvheosInvertColumn; the search runs along rho with stride nT).
  *
- * Returns SCVHEOS_FAIL_VALUE if the root finder does not converge, and
- * SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if the input is not
- * finite or the root cannot be bracketed.
+ * Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if the input is
+ * not finite, logT is outside the table, logP is outside the row
+ * [P(rho_min), P(rho_max)], or P(rho) is not monotonic at logP.
  */
 double scvheosLogRhoofLogPLogT(SCVHEOSMAT *Mat, double logP, double logT) {
-    /* GSL root finder */
-    gsl_root_fsolver *Solver;
-    const gsl_root_fsolver_type *SolverType;
-    gsl_function F;
-    struct LogPofLogRhoLogT_GSL_Params Params;
-    const double err_abs = SCVHEOS_ROOT_ERR_ABS;
-    const double err_rel = SCVHEOS_ROOT_ERR_REL;
-    int status = GSL_CONTINUE;
-    int max_iter = SCVHEOS_ROOT_MAX_ITER;
-    double logrho_min, logrho_max;
-    double logrho = 0.0;
+    const int nT = Mat->nT;
+    const double *a0;
+    double v;
+    double logrho;
+    int i, iret;
 
     if (!isfinite(logP) || !isfinite(logT)) {
         fprintf(stderr, "scvheosLogRhoofLogPLogT: invalid input logP= %g logT= %g.\n", logP, logT);
         SCVHEOS_FAIL_OR_EXIT();
     }
 
-    /* Initialize the parameters. */
-    Params.Mat = Mat;
-    Params.logT = logT;
-    Params.logP = logP;
-
-    /* Initialize the function used for root finding. */
-    F.function = &LogPofLogRhoLogT_GSL_rootfinder;
-    F.params = &Params;
-
-    /* Initialize the root finder. */
-    SolverType = gsl_root_fsolver_brent;
-    SolverType = gsl_root_fsolver_bisection;
-    Solver = gsl_root_fsolver_alloc(SolverType);
-    assert(Solver != NULL);
-
-    /* Set minimum and maximum density. */ 
-    logrho_min = Mat->LogRhoMin;
-    logrho_max = Mat->LogRhoMax;
-
-    /* Make sure the root is bracketed.*/
-    if (!(LogPofLogRhoLogT_GSL_rootfinder(logrho_min, &Params)*LogPofLogRhoLogT_GSL_rootfinder(logrho_max, &Params) <= 0.0)) {
-        fprintf(stderr, "scvheosLogRhoofLogPLogT: Could not bracket root (logP= %g logT= %g).\n", logP, logT);
-        gsl_root_fsolver_free(Solver);
+    if ((logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
+        fprintf(stderr, "scvheosLogRhoofLogPLogT: logT= %15.7E outside of the EOS table.\n", logT);
         SCVHEOS_FAIL_OR_EXIT();
     }
 
-    gsl_root_fsolver_set(Solver, &F, logrho_min, logrho_max);
+    i = scvheosFindCell(Mat->dLogTAxis, nT, logT, &v);
+    a0 = Mat->dLogPArray + i;
 
-    for (int i=0; i<max_iter; i++) {
-        /* Do one iteration of the root solver. */
-        status = gsl_root_fsolver_iterate(Solver);
+    iret = scvheosInvertColumn(Mat->dLogRhoAxis, Mat->nRho, a0, a0 + 1, nT, v, logP, &logrho);
 
-        /* Estimate of the root. */
-        logrho = gsl_root_fsolver_root(Solver);
-
-        /* Current interval that brackets the root. */
-        logrho_min = gsl_root_fsolver_x_lower(Solver);
-        logrho_max = gsl_root_fsolver_x_upper(Solver);
-
-        /* Test for convergence. */
-        status = gsl_root_test_interval(logrho_min, logrho_max, err_abs, err_rel);
-
-#if 0
-        if (status == GSL_SUCCESS)
-            fprintf(stderr, "Converged: x= %g\n", x);
-#endif
-        if (status != GSL_CONTINUE) break;
-    }
-
-    /*
-     * No convergence: return the failure sentinel. A value such as -1.0 would
-     * become a valid-looking density (0.1) after exponentiation.
-     */
-    gsl_root_fsolver_free(Solver);
-
-    if (status != GSL_SUCCESS) {
-        fprintf(stderr, "scvheosLogRhoofLogPLogT: no convergence after %i iterations "
-                "(logP= %g logT= %g bracket= [%g, %g]).\n", max_iter, logP, logT, logrho_min, logrho_max);
+    if (iret != 0) {
+        const double v0 = 1.0 - v;
+        const size_t last = (size_t)(Mat->nRho - 1)*nT;
+        fprintf(stderr, "scvheosLogRhoofLogPLogT: logP= %g %s at logT= %g "
+                "(row P(rho_min)= %g P(rho_max)= %g, logrho in [%g, %g]).\n", logP,
+                (iret == -1) ? "below the table" : (iret == +1) ? "above the table" : "in a non-monotonic row",
+                logT, v0*a0[0] + v*a0[1], v0*a0[last] + v*a0[last+1], Mat->LogRhoMin, Mat->LogRhoMax);
         SCVHEOS_FAIL_OR_EXIT();
     }
+
 
     return logrho;
 }
@@ -1595,53 +1469,4 @@ int scvheosIsInExtrapLimit(SCVHEOSMAT *Mat, double rho, double u) {
     if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMax)) return SCVHEOS_OUTSIDE_TMAX;
 
     return SCVHEOS_SUCCESS;
-}
-
-/* Functions required by the GSL root finder. */
-double LogUofLogRhoLogT_GSL_rootfinder(double logT, void *params) {
-    SCVHEOSMAT *Mat;
-    double logrho;
-    double logu;
-
-    struct LogUofLogRhoLogT_GSL_Params *p;
-
-    p = (struct LogUofLogRhoLogT_GSL_Params *) params;
-
-    Mat = p->Mat;
-    logrho = p->logrho;
-    logu = p->logu;
-
-    return (scvheosLogUofLogRhoLogT(Mat, logrho, logT)-logu);
-}
-
-double LogSofLogRhoLogT_GSL_rootfinder(double logT, void *params) {
-    SCVHEOSMAT *Mat;
-    double logrho;
-    double logs;
-
-    struct LogSofLogRhoLogT_GSL_Params *p;
-
-    p = (struct LogSofLogRhoLogT_GSL_Params *) params;
-
-    Mat = p->Mat;
-    logrho = p->logrho;
-    logs = p->logs;
-
-    return (scvheosLogSofLogRhoLogT(Mat, logrho, logT)-logs);
-}
-
-double LogPofLogRhoLogT_GSL_rootfinder(double logrho, void *params) {
-    SCVHEOSMAT *Mat;
-    double logT;
-    double logP;
-
-    struct LogPofLogRhoLogT_GSL_Params *p;
-
-    p = (struct LogPofLogRhoLogT_GSL_Params *) params;
-
-    Mat = p->Mat;
-    logT = p->logT;
-    logP = p->logP;
-
-    return (scvheosLogPofLogRhoLogT(Mat, logrho, logT)-logP);
 }

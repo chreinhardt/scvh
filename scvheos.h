@@ -32,8 +32,9 @@
  * and the library is compiled with SCVH_NOEXIT (without it the functions
  * exit). It is returned both by the log-space functions (in log space) and
  * by the linear-space wrappers (rho, u, T, P, s, cs), so callers can test
- * for x < -1e40 in either case. Non-convergence of the root finders is
- * treated the same way as any other failed lookup.
+ * for x < -1e40 in either case. A failed inversion (target outside the
+ * table column, or a non-monotonic column) is treated the same way as any
+ * other failed lookup.
  */
 #define SCVHEOS_FAIL_VALUE (-1e50)
 
@@ -152,25 +153,6 @@ typedef struct scvheosMat {
     long nLookupFail;
 } SCVHEOSMAT;
 
-/* Data structure needed for the GSL root finder. */
-struct LogUofLogRhoLogT_GSL_Params {
-    SCVHEOSMAT *Mat;
-    double logrho;
-    double logu;
-};
-
-struct LogSofLogRhoLogT_GSL_Params {
-    SCVHEOSMAT *Mat;
-    double logrho;
-    double logs;
-};
-
-struct LogPofLogRhoLogT_GSL_Params {
-    SCVHEOSMAT *Mat;
-    double logT;
-    double logP;
-};
-
 /* Functions to initialize and finalize materials. */
 SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit);
 int scvheosFinalizeMaterial(SCVHEOSMAT *Mat);
@@ -229,9 +211,4 @@ int scvheosPrintMat(SCVHEOSMAT *Mat, FILE *fp);
 int scvheosCheckTableBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 int scvheosCheckBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 int scvheosIsInExtrapLimit(SCVHEOSMAT *Mat, double rho, double u);
-
-/* Functions required by the GSL root finder. */
-double LogUofLogRhoLogT_GSL_rootfinder(double logT, void *params);
-double LogSofLogRhoLogT_GSL_rootfinder(double logT, void *params);
-double LogPofLogRhoLogT_GSL_rootfinder(double logrho, void *params);
 #endif
