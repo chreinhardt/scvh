@@ -9,7 +9,7 @@
 #define SCVHEOS_HINCLUDED
 
 #include <stdio.h>   /* FILE in scvheosPrintMat */
-#include <gsl/gsl_interp2d.h>
+#include "interpBilinear/interpBilinear.h"   /* git subtree of the interpBilinear repository */
 
 /*
  * Version history
@@ -25,11 +25,38 @@
  *          dLogBase, dGasConst, dSecUnit, InterpType, the *_GSL_Params
  *          structs and *_GSL_rootfinder callbacks; SCVHEOS_FAIL = -99;
  *          SCVHEOS_HHE_EXT for id 114 (old name kept as alias).
+ *   1.2.0  interpolation through the header-only interpBilinear core (git
+ *          subtree in interpBilinear/): the four forward lookups, the
+ *          inversions, the partials, the sound-speed derivatives and the
+ *          monotonicity report all use it; GSL is gone entirely (no
+ *          gsl_interp2d, no accelerators, no GSL headers in this header).
+ *          The edge tolerance is SCVHEOS_EDGE_TOL relative to the table
+ *          bound instead of 1e-13*(1 + |x|); SCVHEOSMAT is read-only after
+ *          initialisation apart from nLookupFail. Same inversion (strict
+ *          mode) and same failure contract as 1.1.
  */
-#define SCVHEOS_VERSION_TEXT      "1.1.1"
+#define SCVHEOS_VERSION_TEXT      "1.2.0"
 #define SCVHEOS_VERSION_MAJOR     1
-#define SCVHEOS_VERSION_MINOR     1
-#define SCVHEOS_VERSION_PATCH     1
+#define SCVHEOS_VERSION_MINOR     2
+#define SCVHEOS_VERSION_PATCH     0
+
+/* Required version of the interpBilinear core; checked at compile time. */
+#define INTERP_VERSION_MAJOR_REQUIRED 1
+#define INTERP_VERSION_MINOR_REQUIRED 0
+#define INTERP_VERSION_PATCH_REQUIRED 2
+#if (INTERP_VERSION_MAJOR * 10000 + INTERP_VERSION_MINOR * 100 + INTERP_VERSION_PATCH) < \
+    (INTERP_VERSION_MAJOR_REQUIRED * 10000 + INTERP_VERSION_MINOR_REQUIRED * 100 + INTERP_VERSION_PATCH_REQUIRED)
+#error "scvheos: the vendored interpBilinear is older than the required version"
+#endif
+
+/*
+ * Roundoff tolerance at the table edges, relative to the bound: a state on
+ * the edge converted through 10^x and log10 lands within a few ulps of the
+ * bound (in which direction depends on the libm), so it is accepted and
+ * clamped onto the bound rather than rejected. The same tolerance is used
+ * on the targets of the inversions (u, s, P in log space).
+ */
+#define SCVHEOS_EDGE_TOL 1e-13
 
 /*
  * Status codes. SCVHEOS_FAIL is a generic failure (initialization, I/O);
@@ -104,9 +131,9 @@
 #endif
 
 /*
- * One SCVHEOSMAT is NOT safe to share between threads: the gsl_interp_accel
- * caches are mutated by every lookup. pkdgrav3 holds one material per
- * thread, which is what this library assumes.
+ * After scvheosInitMaterial a SCVHEOSMAT is read-only except for the
+ * nLookupFail counter, which the clamping lookups increment without any
+ * locking. pkdgrav3 holds one material per thread anyway.
  */
 typedef struct scvheosMat {
     int iMat;
@@ -127,19 +154,10 @@ typedef struct scvheosMat {
     double dErgPerGmUnit;
     double dGmPerCcUnit;
 
-    /* GSL 2D interpolators (bilinear; see scvheosInitMaterial). */
-    gsl_interp2d *InterpLogP;
-    gsl_interp2d *InterpLogU;
-    gsl_interp2d *InterpLogS;
-    gsl_interp2d *InterpLogCs;
-
-    /* Accelerator, shared by the four interpolators (same axes). */
-    gsl_interp_accel *xAcc;
-    gsl_interp_accel *yAcc;
-
     /* The EOS tables are base-10 logarithms, laid out A[j*nT + i] (j: rho, i: T). */
     double *dLogRhoAxis;
     double *dLogTAxis;
+    INTERPGRID grid;   /* {nRho, nT, dLogRhoAxis, dLogTAxis}: the view the interpBilinear core works on */
     double *dLogUArray;
     double *dLogPArray;
     double *dLogSArray;
