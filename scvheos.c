@@ -1,23 +1,133 @@
 /*
  * Copyright (c) 2020 Christian Reinhardt
  *
- * This file proves an interface for the SCvH equation of state (Saumon et al. 1995) for Hydrogen
+ * This file provides an interface for the SCvH equation of state (Saumon et al. 1995) for Hydrogen
  * and Helium that was extended to lower temperatures by Vazan et al. (2013).
  *
  * Author:   Christian Reinhardt
  * Created:  02.04.2020
- * Modified: 03.10.2022
+ * Modified: 26.10.2026
  */
+
+/* getline() is POSIX.1-2008; declare it under -std=c99 too. */
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
-#include <gsl/gsl_errno.h>
-#include <gsl/gsl_math.h>
-#include <gsl/gsl_interp2d.h>
-#include <gsl/gsl_roots.h>
 #include "scvheos.h"
+
+/*
+ * 10^x. The tables are base-10 logarithms (log10 is hard-wired in every
+ * forward conversion), so the exponential is fixed too; exp(x ln 10) is
+ * cheaper than pow(10, x) and accurate to an ulp or two.
+ */
+static double scvheosExp10(double x) {
+    const double LN10 = 2.302585092994045684;   /* M_LN10 is not ISO C */
+    return exp(x*LN10);
+}
+
+/*
+ * Lookup failure handling.
+ *
+ * The log-space functions return SCVHEOS_FAIL_VALUE when a lookup fails and
+ * SCVH_NOEXIT is defined, otherwise they exit. The linear-space wrappers must
+ * test the log value BEFORE exponentiating, because pow(10, -1e50) == 0 is a
+ * perfectly valid-looking number and the failure would be lost.
+ *
+ * scvheosFailed(x) is true for the sentinel and for NaN, in log or linear space.
+ */
+static int scvheosFailed(double x) {
+    return !(x > -1e40);
+}
+
+#ifdef SCVH_NOEXIT
+#define SCVHEOS_FAIL_OR_EXIT() return SCVHEOS_FAIL_VALUE
+#else
+#define SCVHEOS_FAIL_OR_EXIT() exit(1)
+#endif
+
+/*
+ * Non-fatal warnings for lookups that fall back to a table edge. Off by
+ * default: a gas particle expanding into vacuum hits the T_min edge at
+ * every step, and a message per particle per step would flood stderr.
+ * Mat->nLookupFail counts them regardless; compile with -DSCVHEOS_VERBOSE
+ * to also see each one.
+ */
+#ifdef SCVHEOS_VERBOSE
+#define SCVHEOS_WARN(...) fprintf(stderr, __VA_ARGS__)
+#else
+#define SCVHEOS_WARN(...) ((void)0)
+#endif
+
+/*
+ * Interpolation.
+ *
+ * The tables are bilinear in (logrho, logT) and everything is done by the
+ * interpBilinear core on Mat->grid: forward lookups, the closed-form
+ * inversion of the piecewise linear line obtained by fixing one coordinate
+ * (T(rho, u), T(rho, s), rho(P, T)), the partials on the bilinear patch and
+ * the node derivatives of the sound-speed table. The core is agnostic about
+ * the logarithms: this file passes log10 values in and exponentiates on the
+ * way out.
+ *
+ * The inversions use the strict mode: a column is assumed to increase
+ * monotonically, a target outside [f(T_min), f(T_max)] fails with
+ * INTERP_BELOW/INTERP_ABOVE, a non-monotonic column with
+ * INTERP_NONMONOTONIC (scvheosCheckMonotonic reports those at init). The
+ * value tolerance absorbs a target that left the column by a 10^x <-> log10
+ * round trip.
+ */
+static const INTERPINVERTOPT scvheosInvertOpt = { 0, SCVHEOS_EDGE_TOL, 0.0, 0.0 };   /* INTERP_INVERT_STRICT with this library's tolerance */
+
+/* Name of an inversion status, for the diagnostics. */
+static const char *scvheosInvertStatus(int iret) {
+    switch (iret) {
+        case INTERP_BELOW:        return "below the table";
+        case INTERP_ABOVE:        return "above the table";
+        case INTERP_NONMONOTONIC: return "in a non-monotonic column";
+        default:                  return "not attained";
+    }
+}
+
+/*
+ * Locate (logrho, logT) on the grid with the edge tolerance. Returns
+ * INTERP_SUCCESS and the cell, or the core's status code (the caller prints).
+ */
+static int scvheosLocateLog(const SCVHEOSMAT *Mat, double logrho, double logT, INTERPCELL *cell) {
+    return interpLocate(&Mat->grid, logrho, logT, SCVHEOS_EDGE_TOL, cell);
+}
+
+/*
+ * Check the monotonicity the inversions rely on, once per table at init:
+ * u(T) and s(T) increasing along every rho column, P(rho) increasing along
+ * every T row. Bilinear interpolation between two monotonic node columns is
+ * monotonic, so checking the node columns covers every logrho. Reports the
+ * number of defective columns/rows and the first few, so a later
+ * "non-monotonic column" failure of an inversion can be traced to the table.
+ */
+static void scvheosCheckMonotonic(SCVHEOSMAT *Mat) {
+    const int nT = Mat->nT, nRho = Mat->nRho, nReport = 5;
+    int nBadU = 0, nBadS = 0, nBadP = 0;
+
+    for (int j = 0; j < nRho; j++) {
+        int badU = interpNodeLineMonotonic(&Mat->grid, Mat->dLogUArray, INTERP_ALONG_Y, j);
+        int badS = interpNodeLineMonotonic(&Mat->grid, Mat->dLogSArray, INTERP_ALONG_Y, j);
+        if (badU) { if (nBadU < nReport) fprintf(stderr, "scvheosInitMaterial: iMat= %i: u(T) not increasing at jRho= %i (logrho= %g), e.g. iT= %i.\n", Mat->iMat, j, Mat->dLogRhoAxis[j], badU); nBadU++; }
+        if (badS) { if (nBadS < nReport) fprintf(stderr, "scvheosInitMaterial: iMat= %i: s(T) not increasing at jRho= %i (logrho= %g), e.g. iT= %i.\n", Mat->iMat, j, Mat->dLogRhoAxis[j], badS); nBadS++; }
+    }
+    for (int i = 0; i < nT; i++) {
+        int badP = interpNodeLineMonotonic(&Mat->grid, Mat->dLogPArray, INTERP_ALONG_X, i);
+        if (badP) { if (nBadP < nReport) fprintf(stderr, "scvheosInitMaterial: iMat= %i: P(rho) not increasing at iT= %i (logT= %g), e.g. jRho= %i.\n", Mat->iMat, i, Mat->dLogTAxis[i], badP); nBadP++; }
+    }
+    if (nBadU || nBadS || nBadP) {
+        fprintf(stderr, "scvheosInitMaterial: iMat= %i: non-monotonic columns: u(T) %i of %i, s(T) %i of %i, P(rho) %i of %i; "
+                "inversions fail (u, P) or clamp (s) where a target falls into such a column.\n",
+                Mat->iMat, nBadU, nRho, nBadS, nRho, nBadP, nT);
+    }
+}
 
 /*
  * Initalize a material.
@@ -25,20 +135,15 @@
  * Initialize the material data, read the EOS tables and convert them to code units if desired.
  */
 SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
-    const double KBOLTZ = 1.38e-16;      /* bolzman constant in cgs */
-    const double MHYDR = 1.67e-24;       /* mass of hydrogen atom in grams */
+    /* Gasoline/pkdgrav3 unit constants. Must match the hydro code and the other EOS libraries exactly. */
     const double MSOLG = 1.99e33;        /* solar mass in grams */
     const double GCGS = 6.67e-8;         /* G in cgs */
     const double KPCCM = 3.085678e21;    /* kiloparsec in centimeters */
-    const double NA = 6.022e23;          /* Avogadro's number */
     SCVHEOSMAT *Mat;
     int nRho;
     int nT;
     char inFile[256];
     int nSkip;
-    /* GSL interpolator type */
-    const gsl_interp2d_type *InterpType;
-    int bInterpBilinear = 1;
 
     /* 
      * Allocate memory and initialize the data.
@@ -54,10 +159,9 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
     Mat->dMsolUnit = dMsolUnit;
     Mat->nRho = 0;
     Mat->nT = 0;
-    Mat->dLogBase = 10.0;
 
-    /* Set the reference density for ballic. */ 
-    Mat->rho0 = 1e-3; 
+    /* Reference density, a convention for a gas; see SCVHEOS_RHO0_CGS. */
+    Mat->rho0 = SCVHEOS_RHO0_CGS;
 
     /*
      * Load the EOS table.
@@ -72,7 +176,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             nRho = 201;
             nT = 100;
             nSkip = 1;
-            strcpy(Mat->MatString, "Material not implemented yet.");
+            strcpy(Mat->MatString, "SCvH EOS H (Saumon et al. 1995).");
             break;
         case SCVHEOS_HE:
             /*
@@ -82,7 +186,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             nRho = 201;
             nT = 100;
             nSkip = 1;
-            strcpy(Mat->MatString, "Material not implemented yet.");
+            strcpy(Mat->MatString, "SCvH EOS He (Saumon et al. 1995).");
             break;
         case SCVHEOS_HHE:
             /*
@@ -92,7 +196,7 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             nRho = 201;
             nT = 100;
             nSkip = 1;
-            strcpy(Mat->MatString, "Material not implemented yet.");
+            strcpy(Mat->MatString, "SCvH EOS H-He Y=0.275 (Saumon et al. 1995).");
             break;
         case SCVHEOS_HHE_LOWRHOT:
             /*
@@ -104,83 +208,131 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
             nSkip = 2;
             strcpy(Mat->MatString, "SCvH EOS H-He Y=0.275 (Saumon et al. 1995, Vazan et al. 2013).");
             break;
-        case SCVHEOS_HHE_EXT_LOWRHOT:
+        case SCVHEOS_HHE_EXT:
             /*
-             * Hydrogen / Helium mixture (X=0.722, Y=0.278) based on the extended EOS tables
-             * limited to low rho and T.
+             * Hydrogen / Helium mixture (X=0.722, Y=0.278), full extended EOS table
+             * (the low-rho/T cut this id once loaded is no longer used).
              */
-            strcpy(inFile, "scvh_extended_dt_hydrogen_722_helium_278_lowrhot.txt");
-            nRho = 201;
-            nT = 31;
-            nSkip = 2;
+            strcpy(inFile, "scvh_extended_dt_hydrogen_722_helium_278.data");
+            nRho = 460;
+            nT = 76;
+            nSkip = 1;
+
             strcpy(Mat->MatString, "SCvH EOS H-He X=0.722 Y=0.278 (Saumon et al. 1995, Vazan et al. 2013).");
             break;
-        default:
-            /* Unknown material */
-            scvheosFinalizeMaterial(Mat);
-            assert(0);
-    }
+        case SCVHEOS_HE_EXT:
+            /*
+             * Helium EOS table extended to lower pressures and temperatures .
+             */
+            strcpy(inFile, "helium_scvh_extended_dt.data");
+            nRho = 460;
+            nT = 76;
+            nSkip = 2;
 
-    /* Currently only SCVHEOS_HHE_EXT_LOWRHOT works. */
-    assert(iMat == SCVHEOS_HHE_EXT_LOWRHOT);
+            strcpy(Mat->MatString, "SCvH EOS He extended to lower pressures and temperatures (Saumon et al. 1995, Vazan et al. 2013).");
+            break;
+        case SCVHEOS_HHE_H2O_Z_1:
+            /*
+             * H-He and H2O mixture obtained from Simon.
+             */
+            strcpy(inFile, "scvh_h2o_mixture_table_Z0.100.data");
+            nRho = 128;
+            nT = 64;
+            nSkip = 2;
+
+            strcpy(Mat->MatString, "SCvH EOS H-He and H2O mixture Z=0.1.");
+            break;
+        case SCVHEOS_HHE_H2O_Z_05:
+            /*
+             * H-He and H2O mixture obtained from Simon.
+             */
+            strcpy(inFile, "scvh_h2o_mixture_table_Z0.050.data");
+            nRho = 128;
+            nT = 64;
+            nSkip = 2;
+
+            strcpy(Mat->MatString, "SCvH EOS H-He and H2O mixture Z=0.05.");
+            break;
+        case SCVHEOS_HHE_H2O_Z_012:
+            /*
+             * H-He and H2O mixture obtained from Simon.
+             */
+            strcpy(inFile, "scvh_h2o_mixture_table_Z0.012.data");
+            nRho = 128;
+            nT = 64;
+            nSkip = 2;
+
+            strcpy(Mat->MatString, "SCvH EOS H-He and H2O mixture Z=0.012.");
+            break;
+        default:
+            /* Unknown material. Do not fall through: Mat is freed here. */
+            fprintf(stderr, "scvheosInitMaterial: iMat= %i is not an SCvH EOS material.\n", iMat);
+            scvheosFinalizeMaterial(Mat);
+            exit(1);
+    }
 
     /*
      * Allocate memory and read the EOS table.
      */
     if (scvheosReadTable(Mat, inFile, nRho, nT, nSkip) != SCVHEOS_SUCCESS) {
-        fprintf(stderr, "SCVH EOS: Could not open EOS table %s.\n", inFile);
+        fprintf(stderr, "scvheosInitMaterial: Could not read EOS table %s (see above).\n", inFile);
         scvheosFinalizeMaterial(Mat);
         exit(1);
     }
 
-    /* Define limits of the table (or extrapolation). */
-#if 0
-    Mat->LogRhoMin = -25.0;
-    Mat->LogRhoMax = 3.0;
-    Mat->LogTMin = -2;
-    Mat->LogTMax = 6;
-#endif
-#if 0
-    //Mat->LogRhoMin = -10.5;
-    Mat->LogRhoMin = -18.0;
-    Mat->LogRhoMax = -0.9;
-    Mat->LogTMin = -2.0;
-    Mat->LogTMax = 4.7;
-#endif
-#if 0
+    /* The view the interpBilinear core works on: x = logrho (outer), y = logT (inner). */
+    Mat->grid.nx = Mat->nRho;
+    Mat->grid.ny = Mat->nT;
+    Mat->grid.x = Mat->dLogRhoAxis;
+    Mat->grid.y = Mat->dLogTAxis;
+
+    /* The lookup limits are the table bounds; no extrapolation. */
     Mat->LogRhoMin = Mat->dLogRhoAxis[0];
     Mat->LogRhoMax = Mat->dLogRhoAxis[Mat->nRho-1];
     Mat->LogTMin = Mat->dLogTAxis[0];
-    //Mat->LogTMax = Mat->dLogTAxis[Mat->nT-1];
-    Mat->LogTMax = 3.6;
-#endif
-    Mat->LogRhoMin = -25.0;
-    Mat->LogRhoMax = 1.0;
-    Mat->LogTMin = -1;
-    Mat->LogTMax = 4;
+    Mat->LogTMax = Mat->dLogTAxis[Mat->nT-1];
+
+    /*
+     * rho0 must be a density the EOS can be evaluated at (EOSSolveBC starts
+     * its lower bracket at 0.999*rho0). If the table does not cover the
+     * conventional value, fall back to the geometric centre of the rho axis.
+     * Still in cgs here.
+     */
+    {
+        double logrho0 = log10(Mat->rho0);
+        if (!(logrho0 > Mat->LogRhoMin) || !(logrho0 < Mat->LogRhoMax)) {
+            logrho0 = 0.5*(Mat->LogRhoMin + Mat->LogRhoMax);
+            fprintf(stderr, "scvheosInitMaterial: iMat= %i: reference density %g g/cc outside the "
+                    "table [%g, %g] g/cc, using %g g/cc instead.\n", iMat, Mat->rho0,
+                    scvheosExp10(Mat->LogRhoMin), scvheosExp10(Mat->LogRhoMax),
+                    scvheosExp10(logrho0));
+            Mat->rho0 = scvheosExp10(logrho0);
+        }
+    }
 
     /*
      * Convert from cgs to code units.
      */
     if ((Mat->dKpcUnit > 0.0) && (Mat->dMsolUnit > 0.0)) {
-        Mat->dGasConst = Mat->dKpcUnit*KPCCM*KBOLTZ
-            /MHYDR/GCGS/Mat->dMsolUnit/MSOLG;
         /* code energy per unit mass --> erg per g */
         Mat->dErgPerGmUnit = GCGS*Mat->dMsolUnit*MSOLG/(Mat->dKpcUnit*KPCCM);
         /* code density --> g per cc */
         Mat->dGmPerCcUnit = (Mat->dMsolUnit*MSOLG)/pow(Mat->dKpcUnit*KPCCM,3.0);
-        /* code time --> seconds */
-        Mat->dSecUnit = sqrt(1/(Mat->dGmPerCcUnit*GCGS));
 
         for (int i=0; i<Mat->nRho; i++) {
             Mat->dLogRhoAxis[i] -= log10(Mat->dGmPerCcUnit);
         }
         
+        /*
+         * The entropy table is NOT converted: following the EOSlib convention
+         * (see EOSSofRhoU/EOSSofRhoT in EOSlib.h) the specific entropy is
+         * always in cgs, erg g^-1 K^-1, whatever the units of rho, u and P.
+         * Only entropy differences within one material are meaningful anyway.
+         */
         for (int i=0; i<Mat->nT; i++) {
             for (int j=0; j<Mat->nRho; j++) {
                 Mat->dLogPArray[j*Mat->nT+i] -= log10(Mat->dErgPerGmUnit*Mat->dGmPerCcUnit);
                 Mat->dLogUArray[j*Mat->nT+i] -= log10(Mat->dErgPerGmUnit);
-                Mat->dLogSArray[j*Mat->nT+i] -= log10(Mat->dErgPerGmUnit);
             }
         }
  
@@ -189,64 +341,36 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
         Mat->LogRhoMax -= log10(Mat->dGmPerCcUnit);
         Mat->rho0 /= Mat->dGmPerCcUnit;
     } else {
-        /* Prevent problems if dKpcUnit or dMsolUnit are not set. */
-        Mat->dGasConst = 0.0;
+        /* No unit system given: everything stays in cgs. */
         Mat->dErgPerGmUnit = 1.0;
         Mat->dGmPerCcUnit = 1.0;
-        Mat->dSecUnit = 1.0;
     }
 
-    /*
-     * Initialize the GSL interpolator.
-     */
-    if (bInterpBilinear) {
-        InterpType = gsl_interp2d_bilinear;
-    } else {
-        InterpType = gsl_interp2d_bicubic;
-    }
-
-    Mat->xAccP = gsl_interp_accel_alloc();
-    Mat->yAccP = gsl_interp_accel_alloc();
-    Mat->xAccU = gsl_interp_accel_alloc();
-    Mat->yAccU = gsl_interp_accel_alloc();
-    Mat->xAccS = gsl_interp_accel_alloc();
-    Mat->yAccS = gsl_interp_accel_alloc();
-    Mat->xAccCs = gsl_interp_accel_alloc();
-    Mat->yAccCs = gsl_interp_accel_alloc();
-
-    /* x corresponts to T and y corresponds to rho. */
-    Mat->InterpLogP = gsl_interp2d_alloc(InterpType, Mat->nT, Mat->nRho);
-    Mat->InterpLogU = gsl_interp2d_alloc(InterpType, Mat->nT, Mat->nRho);
-    Mat->InterpLogS = gsl_interp2d_alloc(InterpType, Mat->nT, Mat->nRho);
-    Mat->InterpLogCs = gsl_interp2d_alloc(InterpType, Mat->nT, Mat->nRho);
-
-    gsl_interp2d_init(Mat->InterpLogP, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogPArray, Mat->nT, Mat->nRho);
-    gsl_interp2d_init(Mat->InterpLogU, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogUArray, Mat->nT, Mat->nRho);
-    gsl_interp2d_init(Mat->InterpLogS, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogSArray, Mat->nT, Mat->nRho);
-
-    /* The sound speed can only be calculated after the interpolation in P and u is initialized. */
+    /* The sound speed table is built from dLogPArray/dLogUArray directly; it only needs the tables in code units. */
     if (scvheosGenerateSoundSpeedTable(Mat) != SCVHEOS_SUCCESS) {
         fprintf(stderr, "scvheosInitMaterial: Could not generate table for sound speed.\n");
+        scvheosFinalizeMaterial(Mat);
         exit(1);
     }
 
-    gsl_interp2d_init(Mat->InterpLogCs, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogCArray, Mat->nT, Mat->nRho);
+    scvheosCheckMonotonic(Mat);
 
     return Mat;
 }
 
 /*
- * Free memory.
+ * Free memory. Safe to call on a partially initialized material (calloc
+ * zeroes all pointers, free(NULL) is fine).
  */
 int scvheosFinalizeMaterial(SCVHEOSMAT *Mat) {
     if (Mat != NULL) {
-        if (Mat->dLogRhoAxis != NULL) free(Mat->dLogRhoAxis);
-        if (Mat->dLogTAxis != NULL) free(Mat->dLogTAxis);
+        free(Mat->dLogRhoAxis);
+        free(Mat->dLogTAxis);
 
-        if (Mat->dLogUArray != NULL) free(Mat->dLogUArray);
-        if (Mat->dLogPArray != NULL) free(Mat->dLogPArray); 
-        if (Mat->dLogSArray != NULL) free(Mat->dLogSArray);
-        if (Mat->dLogCArray != NULL) free(Mat->dLogCArray);
+        free(Mat->dLogUArray);
+        free(Mat->dLogPArray);
+        free(Mat->dLogSArray);
+        free(Mat->dLogCArray);
 
         free(Mat);
     }
@@ -265,11 +389,12 @@ int scvheosFinalizeMaterial(SCVHEOSMAT *Mat) {
  * He:   nRho = 201, nT = 100, logarithmic spacing (base 10)
  * H/He: nRho = 201, nT = 100, logarithmic spacing (base 10)
  */
-int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT, int nSkip) {
-    FILE *fp;
-    char *chLine;
+int scvheosReadTable(SCVHEOSMAT *Mat, const char *chInFile, int nRho, int nT, int nSkip) {
+    FILE *fp = NULL;
+    char *chLine = NULL;
     size_t nCharMax = 256;
     int iRet;
+    int iStatus = SCVHEOS_FAIL;
     int i, j;
 
     if (Mat == NULL)  {
@@ -281,71 +406,131 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT, int nSk
         return SCVHEOS_FAIL;
     }
 
+    /*
+     * The table arrays stay allocated on failure: scvheosFinalizeMaterial
+     * frees them. Only the local resources (fp, chLine) are released here,
+     * on every path, via the cleanup label.
+     */
     Mat->dLogRhoAxis = (double *) calloc(nRho, sizeof(double));
     Mat->dLogTAxis = (double *) calloc(nT, sizeof(double));
 
-    /* The GSL interpolation functions require the tables are 1D arrays. */
+    /* The tables are flat rho-major arrays, A[j*nT + i]. */
     Mat->dLogUArray = (double *) calloc(nT*nRho, sizeof(double));
     Mat->dLogPArray = (double *) calloc(nT*nRho, sizeof(double));
     Mat->dLogSArray = (double *) calloc(nT*nRho, sizeof(double));
 
     if ((Mat->dLogRhoAxis == NULL) || (Mat->dLogTAxis == NULL) || (Mat->dLogUArray == NULL) ||
             (Mat->dLogPArray == NULL) || (Mat->dLogSArray == NULL)) {
-        return SCVHEOS_FAIL;
+        goto cleanup;
     }
 
     chLine = (char *) calloc(nCharMax, sizeof(char));
+    if (chLine == NULL) {
+        goto cleanup;
+    }
 
     /* Open the file and skip the first few lines. */
     fp = fopen(chInFile, "r");
     if (fp == NULL) {
-        return SCVHEOS_FAIL;
+        goto cleanup;
     }
 
     for (i=0; i<nSkip; i++) {
         if (getline(&chLine, &nCharMax, fp) == -1) {
-            return SCVHEOS_FAIL;
+            goto cleanup;
         }
     }
 
+    /*
+     * The file lists one (logT, logrho, logP, logu, logs) row per node, T
+     * outermost. The axes are taken from the first T row (for rho) and the
+     * first rho column (for T) and every later row must repeat them exactly:
+     * a mismatch means the file is not a rectangular grid in the assumed
+     * order, which the interpolator would silently misread.
+     */
     for (i=0; i<nT; i++) {
         for (j=0; j<nRho; j++) {
+            double logT, logrho, logP, logu, logs;
+
             if (getline(&chLine, &nCharMax, fp) == -1) {
-                return SCVHEOS_FAIL;
+                fprintf(stderr, "scvheosReadTable: %s: unexpected end of file at iT= %i jRho= %i "
+                        "(expected nT= %i x nRho= %i nodes).\n", chInFile, i, j, nT, nRho);
+                goto cleanup;
             }
 
-            /* We store the data as A[T][rho]. */
-            iRet = sscanf(chLine, "%lf %lf %lf %lf %lf", &Mat->dLogTAxis[i], &Mat->dLogRhoAxis[j],
-                                                         &Mat->dLogPArray[j*nT+i],
-                                                         &Mat->dLogUArray[j*nT+i],
-                                                         &Mat->dLogSArray[j*nT+i]);
+            iRet = sscanf(chLine, "%lf %lf %lf %lf %lf", &logT, &logrho, &logP, &logu, &logs);
 
             /* Check if the number of matches is correct. */
             if (iRet != 5) {
-                return SCVHEOS_FAIL;
+                fprintf(stderr, "scvheosReadTable: %s: expected 5 columns at iT= %i jRho= %i, got %i.\n",
+                        chInFile, i, j, iRet);
+                goto cleanup;
             }
 
-            if ((pow(Mat->dLogBase, Mat->dLogRhoAxis[j]) < 0.0) ||
-                (pow(Mat->dLogBase, Mat->dLogTAxis[i]) < 0.0) ||
-                (pow(Mat->dLogBase, Mat->dLogUArray[j*nT+i]) < 0.0) ||
-                (pow(Mat->dLogBase, Mat->dLogSArray[j*nT+i]) < 0.0)) {
-                return SCVHEOS_FAIL;
+            /* The file stores logarithms; nan or inf would poison the interpolator. */
+            if (!isfinite(logT) || !isfinite(logrho) || !isfinite(logP) || !isfinite(logu) || !isfinite(logs)) {
+                fprintf(stderr, "scvheosReadTable: %s: non-finite entry at iT= %i jRho= %i "
+                        "(logT= %g logrho= %g logP= %g logu= %g logs= %g).\n",
+                        chInFile, i, j, logT, logrho, logP, logu, logs);
+                goto cleanup;
             }
+
+            /* Axes: set from the first row/column, verify afterwards. */
+            if (i == 0) {
+                Mat->dLogRhoAxis[j] = logrho;
+            } else if (logrho != Mat->dLogRhoAxis[j]) {
+                fprintf(stderr, "scvheosReadTable: %s: logrho= %.15g at iT= %i jRho= %i differs from "
+                        "the rho axis (%.15g): not a rectangular grid.\n",
+                        chInFile, logrho, i, j, Mat->dLogRhoAxis[j]);
+                goto cleanup;
+            }
+
+            if (j == 0) {
+                Mat->dLogTAxis[i] = logT;
+            } else if (logT != Mat->dLogTAxis[i]) {
+                fprintf(stderr, "scvheosReadTable: %s: logT= %.15g at iT= %i jRho= %i differs from "
+                        "the T axis (%.15g): not a rectangular grid.\n",
+                        chInFile, logT, i, j, Mat->dLogTAxis[i]);
+                goto cleanup;
+            }
+
+            /* We store the data as A[T][rho]. */
+            Mat->dLogPArray[j*nT+i] = logP;
+            Mat->dLogUArray[j*nT+i] = logu;
+            Mat->dLogSArray[j*nT+i] = logs;
         }
     }
 
-    fclose(fp);
-    free(chLine);
+    /* The interpolation requires strictly increasing axes. */
+    for (j=1; j<nRho; j++) {
+        if (!(Mat->dLogRhoAxis[j] > Mat->dLogRhoAxis[j-1])) {
+            fprintf(stderr, "scvheosReadTable: %s: rho axis not strictly increasing at jRho= %i "
+                    "(%.15g <= %.15g).\n", chInFile, j, Mat->dLogRhoAxis[j], Mat->dLogRhoAxis[j-1]);
+            goto cleanup;
+        }
+    }
+    for (i=1; i<nT; i++) {
+        if (!(Mat->dLogTAxis[i] > Mat->dLogTAxis[i-1])) {
+            fprintf(stderr, "scvheosReadTable: %s: T axis not strictly increasing at iT= %i "
+                    "(%.15g <= %.15g).\n", chInFile, i, Mat->dLogTAxis[i], Mat->dLogTAxis[i-1]);
+            goto cleanup;
+        }
+    }
 
     Mat->nRho = nRho;
     Mat->nT = nT;
+    iStatus = SCVHEOS_SUCCESS;
 
-    return SCVHEOS_SUCCESS;
+cleanup:
+    if (fp != NULL) fclose(fp);
+    free(chLine);   /* getline may have reallocated it; free(NULL) is fine */
+
+    return iStatus;
 }
 
 /*
  * Generate an array that contains the sound speed at each EOS table data point.
- * 
+ *
  * The sound speed is calculated from
  *
  * cs^2 = dP/drho + T/(rho^2*C_v)*(dP/dT)^2
@@ -354,926 +539,761 @@ int scvheosReadTable(SCVHEOSMAT *Mat, char *chInFile,  int nRho, int nT, int nSk
  *
  * c_v = du/dT
  *
- * is the specific heat capacity at constant volume. The derivatives are obtained
- * numerically.
+ * is the specific heat capacity at constant volume. The derivatives are the
+ * central differences of the log tables on the grid (interpNodeDeriv: second
+ * order, symmetric about the node, one-sided at the ends), taken directly
+ * from dLogPArray and dLogUArray:
+ * dP/drho = (P/rho) dlogP/dlogrho, dP/dT = (P/T) dlogP/dlogT, c_v = (u/T) dlogu/dlogT.
+ *
+ * Where the table is defective (c_v <= 0 or a negative cs^2, which happens
+ * e.g. in the H-He/H2O Z=0.05 table) cs^2 is replaced by P/rho at the node:
+ * this has the right units whatever the table is in, and for a gas it is a
+ * lower bound on cs^2 = gamma*P/rho, so the hydro code errs towards a short
+ * timestep. A zero or -inf must never be stored, because bilinear
+ * interpolation would spread it into the neighbouring cells. The number of
+ * replaced nodes is reported on stderr.
  */
 int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
-    double rho;
-    double T;
-    double dPdrho;
-    double dPdT;
-    double cv;
-    double cs2;
+    const int nT = Mat->nT, nRho = Mat->nRho;
+    double *rhoNode, *TNode;
+    int nReplaced = 0;
+    const int nReport = 10;   /* print at most this many defective nodes */
 
     if (Mat == NULL)
         return SCVHEOS_FAIL;
-    
-    if ((Mat->dLogRhoAxis == NULL) || (Mat->dLogTAxis == NULL))
+
+    if ((Mat->dLogRhoAxis == NULL) || (Mat->dLogTAxis == NULL) || (Mat->dLogPArray == NULL) || (Mat->dLogUArray == NULL))
         return SCVHEOS_FAIL;
 
     if (Mat->dLogCArray != NULL)
         return SCVHEOS_FAIL;
 
-    /* The GSL interpolation functions require the tables are 1D arrays. */
-    Mat->dLogCArray = (double *) calloc(Mat->nT*Mat->nRho, sizeof(double));
+    Mat->dLogCArray = (double *) calloc((size_t)nT*nRho, sizeof(double));
+    rhoNode = (double *) malloc((size_t)nRho*sizeof(double));
+    TNode = (double *) malloc((size_t)nT*sizeof(double));
 
-    if (Mat->dLogCArray == NULL)
+    if ((Mat->dLogCArray == NULL) || (rhoNode == NULL) || (TNode == NULL)) {
+        free(rhoNode);
+        free(TNode);
         return SCVHEOS_FAIL;
+    }
 
-    for (int i=0; i<Mat->nT; i++) {
-        for (int j=0; j<Mat->nRho; j++) {
-            rho = pow(Mat->dLogBase, Mat->dLogRhoAxis[j]);
-            T = pow(Mat->dLogBase, Mat->dLogTAxis[i]);
+    for (int j = 0; j < nRho; j++) rhoNode[j] = scvheosExp10(Mat->dLogRhoAxis[j]);
+    for (int i = 0; i < nT; i++) TNode[i] = scvheosExp10(Mat->dLogTAxis[i]);
 
-            dPdrho = scvheosdPdRhoofRhoT(Mat, rho, T);
-            dPdT = scvheosdPdTofRhoT(Mat, rho, T);
-            cv = scvheosdUdTofRhoT(Mat, rho, T);
+    for (int j = 0; j < nRho; j++) {
+        const double *logP = Mat->dLogPArray + (size_t)j*nT;   /* column at rho_j, consecutive in T */
+        const double *logu = Mat->dLogUArray + (size_t)j*nT;
+        const double rho = rhoNode[j];
 
-            /* Use log(rho^2) = 2*log(rho). */
-            cs2 = dPdrho + T/(rho*rho*cv)*dPdT*dPdT;
+        for (int i = 0; i < nT; i++) {
+            const double T = TNode[i];
+            const double P = scvheosExp10(logP[i]);
+            const double u = scvheosExp10(logu[i]);
+            /* Along rho the nodes are nT apart, along T they are consecutive. */
+            const double dlPdlr = interpNodeDeriv(Mat->dLogRhoAxis, nRho, Mat->dLogPArray + i, (size_t)nT, j);
+            const double dlPdlT = interpNodeDeriv(Mat->dLogTAxis, nT, logP, 1, i);
+            const double dludlT = interpNodeDeriv(Mat->dLogTAxis, nT, logu, 1, i);
+            const double dPdrho = P/rho*dlPdlr;
+            const double dPdT = P/T*dlPdlT;
+            const double cv = u/T*dludlT;
+            double cs2 = dPdrho + T/(rho*rho*cv)*dPdT*dPdT;
 
-            assert(!isinf(cs2));
-            assert(cs2 > 0.0);
+            /* Defective node: non-finite (cv = 0), or not positive. */
+            if (!isfinite(cs2) || !(cs2 > 0.0)) {
+                if (nReplaced < nReport) {
+                    fprintf(stderr, "scvheosGenerateSoundSpeedTable: iMat= %i iT= %i jRho= %i "
+                            "logrho= %g logT= %g dPdRho= %g dPdT= %g cv= %g cs2= %g, "
+                            "replaced by P/rho= %g\n", Mat->iMat, i, j,
+                            Mat->dLogRhoAxis[j], Mat->dLogTAxis[i], dPdrho, dPdT, cv, cs2, P/rho);
+                }
+                nReplaced++;
+                cs2 = P/rho;
+            }
 
-            Mat->dLogCArray[j*Mat->nT+i] = log10(sqrt(cs2));
+            /* P/rho > 0 at every node (the table stores log P), so this is finite. */
+            assert(isfinite(cs2) && cs2 > 0.0);
+
+            Mat->dLogCArray[(size_t)j*nT + i] = 0.5*log10(cs2);
         }
+    }
+
+    free(rhoNode);
+    free(TNode);
+
+    if (nReplaced > 0) {
+        fprintf(stderr, "scvheosGenerateSoundSpeedTable: iMat= %i: cs^2 replaced by P/rho at %i of %i nodes.\n",
+                Mat->iMat, nReplaced, nT*nRho);
     }
 
     return SCVHEOS_SUCCESS;
 }
 
-// Functions that have to be implemented or added
-// We also need derivatives to calculate the sound speed (maybe do this once and make a table)?
-
-
 /*
  * Calculate logP(logrho, logT).
+ *
+ * Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if (logrho, logT)
+ * is not finite or outside of the table (closed intervals, see SCVHEOS_EDGE_TOL).
  */
 double scvheosLogPofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    double logP;
+    INTERPCELL cell;
 
-    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
-	    fprintf(stderr, "scvheosLogPofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-        exit(1);
+    if (scvheosLocateLog(Mat, logrho, logT, &cell) != INTERP_SUCCESS) {
+        fprintf(stderr, "scvheosLogPofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
+        SCVHEOS_FAIL_OR_EXIT();
     }
 
-    if (gsl_interp2d_eval_e_extrap(Mat->InterpLogP, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogPArray, logT, logrho,
-			    Mat->xAccP, Mat->yAccP, &logP) != GSL_SUCCESS) {
-	    fprintf(stderr, "scvheosLogPofLogRhoLogT: Interpolation failed (logrho= %15.7E logT= %15.7E).\n", logrho, logT);
-	    exit(1);
-    }
- 
-    return logP;
+    return interpCellValue(&Mat->grid, Mat->dLogPArray, &cell);
 }
 
 /*
  * Calculate logU(logrho, logT).
+ *
+ * Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if (logrho, logT)
+ * is not finite or outside of the table.
  */
 double scvheosLogUofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    double logu;
+    INTERPCELL cell;
 
-    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
-	    fprintf(stderr, "scvheosLogUofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-        exit(1);
+    if (scvheosLocateLog(Mat, logrho, logT, &cell) != INTERP_SUCCESS) {
+        fprintf(stderr, "scvheosLogUofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
+        SCVHEOS_FAIL_OR_EXIT();
     }
 
-    if (gsl_interp2d_eval_e_extrap(Mat->InterpLogU, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogUArray, logT, logrho,
-			    Mat->xAccU, Mat->yAccU, &logu) != GSL_SUCCESS) {
-	    fprintf(stderr, "scvheosLogUofLogRhoLogT: Interpolation failed (logrho= %15.7E logT= %15.7E).\n", logrho, logT);
-	    exit(1);
-    }
-    
-    return logu;
+    return interpCellValue(&Mat->grid, Mat->dLogUArray, &cell);
 }
 
 /*
  * Calculate logs(logrho, logT).
+ *
+ * Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if (logrho, logT)
+ * is not finite or outside of the table.
  */
 double scvheosLogSofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    double logs;
+    INTERPCELL cell;
 
-    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
-	    fprintf(stderr, "scvheosLogSofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-        exit(1);
+    if (scvheosLocateLog(Mat, logrho, logT, &cell) != INTERP_SUCCESS) {
+        fprintf(stderr, "scvheosLogSofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
+        SCVHEOS_FAIL_OR_EXIT();
     }
 
-    if (gsl_interp2d_eval_e_extrap(Mat->InterpLogS, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogSArray, logT, logrho,
-			    Mat->xAccS, Mat->yAccS, &logs) != GSL_SUCCESS) {
-	    fprintf(stderr, "scvheosLogSofLogRhoLogT: Interpolation failed (logrho= %15.7E logT= %15.7E).\n", logrho, logT);
-	    exit(1);
-    }
-    
-    return logs;
+    return interpCellValue(&Mat->grid, Mat->dLogSArray, &cell);
 }
 
 /*
  * Calculate logcs(logrho, logT).
+ *
+ * Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if (logrho, logT)
+ * is not finite or outside of the table.
  */
 double scvheosLogCsofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    double logcs;
+    INTERPCELL cell;
 
-    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
-	    fprintf(stderr, "scvheosLogCsofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-        exit(1);
+    if (scvheosLocateLog(Mat, logrho, logT, &cell) != INTERP_SUCCESS) {
+        fprintf(stderr, "scvheosLogCsofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
+        SCVHEOS_FAIL_OR_EXIT();
     }
 
-    if (gsl_interp2d_eval_e_extrap(Mat->InterpLogCs, Mat->dLogTAxis, Mat->dLogRhoAxis, Mat->dLogCArray, logT, logrho,
-			    Mat->xAccCs, Mat->yAccCs, &logcs) != GSL_SUCCESS) {
-	    fprintf(stderr, "scvheosLogCsofLogRhoLogT: Interpolation failed (logrho= %15.7E logT= %15.7E).\n", logrho, logT);
-	    exit(1);
-    }
- 
-    return logcs;
+    return interpCellValue(&Mat->grid, Mat->dLogCArray, &cell);
 }
 
 
 /*
  * Calculate the pressure P(rho, T).
+ *
+ * Returns SCVHEOS_FAIL_VALUE if the lookup fails.
  */
 double scvheosPofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     double logrho;
     double logT;
-    double P;
+    double logP;
 
     logrho = log10(rho);
     logT = log10(T);
 
     /* Interpolate in the table. */
-    P = pow(Mat->dLogBase, scvheosLogPofLogRhoLogT(Mat, logrho, logT));
+    logP = scvheosLogPofLogRhoLogT(Mat, logrho, logT);
+    if (scvheosFailed(logP)) return SCVHEOS_FAIL_VALUE;
 
-    return P;
+    return scvheosExp10(logP);
 }
 
 /*
  * Calculate the internal energy u(rho, T).
+ *
+ * Returns SCVHEOS_FAIL_VALUE if the lookup fails.
  */
 double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     double logrho;
     double logT;
-    double u;
+    double logu;
 
     logrho = log10(rho);
     logT = log10(T);
 
-    u = pow(Mat->dLogBase, scvheosLogUofLogRhoLogT(Mat, logrho, logT));
+    logu = scvheosLogUofLogRhoLogT(Mat, logrho, logT);
+    if (scvheosFailed(logu)) return SCVHEOS_FAIL_VALUE;
 
-    return u;
+    return scvheosExp10(logu);
 }
 
 /*
- * Calculate the entropy s(rho, T).
+ * Calculate the specific entropy s(rho, T).
+ *
+ * Returned in cgs (erg g^-1 K^-1) regardless of the code units of rho, u
+ * and P (EOSlib convention). Returns SCVHEOS_FAIL_VALUE if the lookup fails.
  */
 double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     double logrho;
     double logT;
-    double s;
+    double logs;
 
     logrho = log10(rho);
     logT = log10(T);
 
     /* Interpolate in the table. */
-    s = pow(Mat->dLogBase, scvheosLogSofLogRhoLogT(Mat, logrho, logT));
+    logs = scvheosLogSofLogRhoLogT(Mat, logrho, logT);
+    if (scvheosFailed(logs)) return SCVHEOS_FAIL_VALUE;
 
-    return s;
+    return scvheosExp10(logs);
 }
 
 /*
  * Calculate the sound speed cs(rho, T).
+ *
+ * Returns SCVHEOS_FAIL_VALUE if the lookup fails.
  */
 double scvheosCsofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
     double logrho;
     double logT;
-    double Cs;
+    double logcs;
 
     logrho = log10(rho);
     logT = log10(T);
 
-    Cs = pow(Mat->dLogBase, scvheosLogCsofLogRhoLogT(Mat, logrho, logT));
+    logcs = scvheosLogCsofLogRhoLogT(Mat, logrho, logT);
+    if (scvheosFailed(logcs)) return SCVHEOS_FAIL_VALUE;
 
-    return Cs;
+    return scvheosExp10(logcs);
+}
+
+/*
+ * Locate the state (rho, u) in the table: the cell (ix along rho, iy along
+ * T) with its local coordinates, from the inversion of the u column, plus
+ * logT. Shared by scvheosPCTofRhoU and the (rho, u) derivatives.
+ *
+ * Returns 0 on success, -1 (after a message naming chFunc) if the input is
+ * non-finite or non-positive, rho is outside the table, or u is outside the
+ * column or in a non-monotonic column. The caller decides between the
+ * sentinel and exit.
+ */
+static int scvheosLocateRhoU(SCVHEOSMAT *Mat, const char *chFunc, double rho, double u,
+                             INTERPCELL *cell, double *plogT) {
+    double logrho, logu;
+    int iret;
+
+    if (!(rho > 0.0) || !(u > 0.0) || !isfinite(rho) || !isfinite(u)) {
+        fprintf(stderr, "%s: invalid input rho= %g u= %g.\n", chFunc, rho, u);
+        return -1;
+    }
+
+    logrho = log10(rho);
+    logu = log10(u);
+
+    iret = interpInvertY(&Mat->grid, Mat->dLogUArray, logrho, logu, SCVHEOS_EDGE_TOL, &scvheosInvertOpt, cell, plogT);
+
+    if (iret == INTERP_OUTSIDE_XMIN || iret == INTERP_OUTSIDE_XMAX) {
+        fprintf(stderr, "%s: logrho= %15.7E outside of the EOS table.\n", chFunc, logrho);
+        return -1;
+    }
+    if (iret != INTERP_SUCCESS) {
+        int ix = 0; double w = 0.0;
+        interpLocateAxis(Mat->dLogRhoAxis, Mat->nRho, logrho, SCVHEOS_EDGE_TOL, &ix, &w);
+        fprintf(stderr, "%s: logu= %g %s at logrho= %g "
+                "(column u(T_min)= %g u(T_max)= %g).\n", chFunc, logu, scvheosInvertStatus(iret), logrho,
+                interpLineValue(&Mat->grid, Mat->dLogUArray, INTERP_ALONG_Y, ix, w, 0),
+                interpLineValue(&Mat->grid, Mat->dLogUArray, INTERP_ALONG_Y, ix, w, Mat->nT - 1));
+        return -1;
+    }
+
+    return 0;
+}
+
+/*
+ * Calculate the pressure P(rho, u), the sound speed cs(rho, u) and the
+ * temperature T(rho, u) from one cell lookup.
+ *
+ * The inversion of the u column gives the T segment; P and cs are then the
+ * bilinear values of their tables in that same cell, with no further search.
+ * This is the hydro-code entry point (EOSPCTofRhoU) and mirrors
+ * ANEOSPCTofRhoU.
+ *
+ * On failure (see scvheosLocateRhoU) returns SCVHEOS_FAIL_VALUE and sets *c
+ * and *T to it as well (or exits without SCVH_NOEXIT).
+ */
+double scvheosPCTofRhoU(SCVHEOSMAT *Mat, double rho, double u, double *c, double *T) {
+    INTERPCELL cell;
+    double logT;
+
+    *c = SCVHEOS_FAIL_VALUE;
+    *T = SCVHEOS_FAIL_VALUE;
+
+    if (scvheosLocateRhoU(Mat, __func__, rho, u, &cell, &logT) != 0) {
+        SCVHEOS_FAIL_OR_EXIT();
+    }
+
+    *T = scvheosExp10(logT);
+    *c = scvheosExp10(interpCellValue(&Mat->grid, Mat->dLogCArray, &cell));
+    return scvheosExp10(interpCellValue(&Mat->grid, Mat->dLogPArray, &cell));
 }
 
 /*
  * Calculate the pressure P(rho, u).
+ *
+ * Returns SCVHEOS_FAIL_VALUE if the inversion or the lookup fails.
  */
 double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
-    double logrho;
-    double logu;
-    double logT;
-    double P;
-
-    logrho = log10(rho);
-    logu = log10(u);
-
-    /* Calculate logT. */
-    logT = scvheosLogTofLogRhoLogU(Mat, logrho, logu);
-
-    /* Interpolate in the table. */
-    P = pow(Mat->dLogBase, scvheosLogPofLogRhoLogT(Mat, logrho, logT));
-
-    // CR
-    assert(P > 0.0);
-    return P;
+    double c, T;
+    return scvheosPCTofRhoU(Mat, rho, u, &c, &T);
 }
 
 /*
  * Calculate the sound speed cs(rho, u).
+ *
+ * Returns SCVHEOS_FAIL_VALUE if the inversion or the lookup fails.
  */
 double scvheosCsofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
-    double logrho;
-    double logu;
-    double logT;
-    double Cs;
-
-    logrho = log10(rho);
-    logu = log10(u);
-
-    /* Calculate logT. */
-    logT = scvheosLogTofLogRhoLogU(Mat, logrho, logu);
-
-    Cs = pow(Mat->dLogBase, scvheosLogCsofLogRhoLogT(Mat, logrho, logT));
-
-    return Cs;
+    double c, T;
+    scvheosPCTofRhoU(Mat, rho, u, &c, &T);
+    return c;
 }
 
 /*
- * Calculate the temperature logT(logrho, logu).
+ * Calculate the temperature logT(logrho, logu) by direct inversion of the
+ * u column at logrho (interpInvertY, strict mode).
+ *
+ * Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if the input is
+ * not finite, logrho is outside the table, logu is outside the column
+ * [u(T_min), u(T_max)], or the column is not monotonic at logu.
  */
 double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
-    /* GSL root finder */
-    gsl_root_fsolver *Solver;
-    const gsl_root_fsolver_type *SolverType;
-    gsl_function F;
-    struct LogUofLogRhoLogT_GSL_Params Params;
-    const double err_abs = 0.0;
-    const double err_rel = 1e-10;
-    int status;
-    int max_iter = 1000;
-    double logT_min, logT_max;
-    double logT = 0.0;
+    INTERPCELL cell;
+    double logT;
+    int iret;
 
-    /* Initialize the parameters. */
-    Params.Mat = Mat;
-    Params.logrho = logrho;
-    Params.logu = logu;
-
-    /* Initialize the function used for root finding. */
-    F.function = &LogUofLogRhoLogT_GSL_rootfinder;
-    F.params = &Params;
-
-    /* Initialize the root finder. */
-    SolverType = gsl_root_fsolver_brent;
-    SolverType = gsl_root_fsolver_bisection;
-    Solver = gsl_root_fsolver_alloc(SolverType);
-    assert(Solver != NULL);
-
-    /* Set minimum and maximum temperature. */ 
-    logT_min = Mat->LogTMin;
-    logT_max = Mat->LogTMax;
-
-    /* Check if logu < logu(logrho, logT_min) or logu > logu(logrho, logT_max) and set a minimum or maximum value. */
-#if 0
-    if (logu < scvheosLogUofLogRhoLogT(Mat, logrho, logT_min)) return logT_min;
-    if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, logT_max)) return logT_max;
-#endif
-    /*
-    /// CR: Careful, this assumes that u(T) is monotonic AND u(T_min) < u(T_max)
-    if (logu < scvheosLogUofLogRhoLogT(Mat, logrho, logT_min)) assert(logu >= scvheosLogUofLogRhoLogT(Mat, logrho, logT_min));
-    if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, logT_max)) assert(logu <= scvheosLogUofLogRhoLogT(Mat, logrho, logT_max));
-    */
-
-    /* Make sure the root is bracketed.*/
-    if (LogUofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogUofLogRhoLogT_GSL_rootfinder(logT_max, &Params) > 0.0) {
-        // CR: 04.10.2022
-        fprintf(stderr, "scvheosLogTofLogRhoLogU:\n");
-
-        fprintf(stderr, "logrho= %g ", logrho);
-        fprintf(stderr, "logu= %g\n", logu);
-        fprintf(stderr, "LogTMin= %g ", Mat->LogTMin);
-        fprintf(stderr, "LogTMax= %g\n", Mat->LogTMax);
-        fprintf(stderr, "loguMin= %g\n", scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMin));
-        fprintf(stderr, "loguMax= %g\n", scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMax));
-        fprintf(stderr, "loguMax= %g\n", LogUofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogUofLogRhoLogT_GSL_rootfinder(logT_max, &Params));
-
-        fprintf(stderr, "Could not bracket root.\n");
-        assert(0);
+    /* log10 of a non-positive rho or u is NaN/-inf: nothing to invert. */
+    if (!isfinite(logrho) || !isfinite(logu)) {
+        fprintf(stderr, "scvheosLogTofLogRhoLogU: invalid input logrho= %g logu= %g.\n", logrho, logu);
+        SCVHEOS_FAIL_OR_EXIT();
     }
 
-    gsl_root_fsolver_set(Solver, &F, logT_min, logT_max);
+    iret = interpInvertY(&Mat->grid, Mat->dLogUArray, logrho, logu, SCVHEOS_EDGE_TOL, &scvheosInvertOpt, &cell, &logT);
 
-    for (int i=0; i<max_iter; i++) {
-        /* Do one iteration of the root solver. */
-        status = gsl_root_fsolver_iterate(Solver);
-
-        /* Estimate of the root. */
-        logT = gsl_root_fsolver_root(Solver);
-
-        /* Current interval that brackets the root. */
-        logT_min = gsl_root_fsolver_x_lower(Solver);
-        logT_max = gsl_root_fsolver_x_upper(Solver);
-
-        /* Test for convergence. */
-        status = gsl_root_test_interval(logT_min, logT_max, err_abs, err_rel);
-
-#if 0
-        if (status == GSL_SUCCESS)
-            fprintf(stderr, "Converged: x= %g\n", x);
-#endif
-        if (status != GSL_CONTINUE) break;
+    if (iret == INTERP_OUTSIDE_XMIN || iret == INTERP_OUTSIDE_XMAX) {
+        fprintf(stderr, "scvheosLogTofLogRhoLogU: logrho= %15.7E outside of the EOS table.\n", logrho);
+        SCVHEOS_FAIL_OR_EXIT();
     }
-
-    if (status != GSL_SUCCESS) logT = -1.0;
-
-    gsl_root_fsolver_free(Solver);
+    if (iret != INTERP_SUCCESS) {
+        int ix = 0; double w = 0.0;
+        interpLocateAxis(Mat->dLogRhoAxis, Mat->nRho, logrho, SCVHEOS_EDGE_TOL, &ix, &w);
+        fprintf(stderr, "scvheosLogTofLogRhoLogU: logu= %g %s at logrho= %g "
+                "(column u(T_min)= %g u(T_max)= %g, logT in [%g, %g]).\n", logu, scvheosInvertStatus(iret), logrho,
+                interpLineValue(&Mat->grid, Mat->dLogUArray, INTERP_ALONG_Y, ix, w, 0),
+                interpLineValue(&Mat->grid, Mat->dLogUArray, INTERP_ALONG_Y, ix, w, Mat->nT - 1),
+                Mat->LogTMin, Mat->LogTMax);
+        SCVHEOS_FAIL_OR_EXIT();
+    }
 
     return logT;
 }
 
 /*
- * Calculate the temperature logT(logrho, logs).
+ * Calculate the temperature logT(logrho, logs) by direct inversion of the
+ * s column at logrho (interpInvertY, strict mode).
+ *
+ * logs below s(T_min) or above s(T_max) of the column returns logT_min or
+ * logT_max respectively, counted in Mat->nLookupFail (ANEOSmaterial
+ * convention). Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if
+ * the input is not finite, logrho is outside the table, or the column is
+ * not monotonic at logs.
  */
 double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
-    /* GSL root finder */
-    gsl_root_fsolver *Solver;
-    const gsl_root_fsolver_type *SolverType;
-    gsl_function F;
-    struct LogSofLogRhoLogT_GSL_Params Params;
-    const double err_abs = 0.0;
-    const double err_rel = 1e-10;
-    int status;
-    int max_iter = 1000;
-    double logT_min, logT_max;
-    double logT = 0.0;
+    INTERPCELL cell;
+    double logT;
+    int iret;
 
-    /* Initialize the parameters. */
-    Params.Mat = Mat;
-    Params.logrho = logrho;
-    Params.logs = logs;
-
-    /* Initialize the function used for root finding. */
-    F.function = &LogSofLogRhoLogT_GSL_rootfinder;
-    F.params = &Params;
-
-    /* Initialize the root finder. */
-    SolverType = gsl_root_fsolver_brent;
-    SolverType = gsl_root_fsolver_bisection;
-    Solver = gsl_root_fsolver_alloc(SolverType);
-    assert(Solver != NULL);
-
-    /* Set minimum and maximum temperature. */ 
-    logT_min = Mat->LogTMin;
-    logT_max = Mat->LogTMax;
-
-    /* Check if logs < logs(logrho, logT_min) or logs > logs(logrho, logT_max) and set a minimum or maximum value. */
-    if (logs < scvheosLogSofLogRhoLogT(Mat, logrho, logT_min)) return logT_min;
-    if (logs > scvheosLogSofLogRhoLogT(Mat, logrho, logT_max)) return logT_max;
-
-    /* Make sure the root is bracketed.*/
-    if (LogSofLogRhoLogT_GSL_rootfinder(logT_min, &Params)*LogSofLogRhoLogT_GSL_rootfinder(logT_max, &Params) > 0.0) {
-        fprintf(stderr, "Could not bracket root.\n");
-        assert(0);
+    if (!isfinite(logrho) || !isfinite(logs)) {
+        fprintf(stderr, "scvheosLogTofLogRhoLogS: invalid input logrho= %g logs= %g.\n", logrho, logs);
+        SCVHEOS_FAIL_OR_EXIT();
     }
 
-    gsl_root_fsolver_set(Solver, &F, logT_min, logT_max);
+    iret = interpInvertY(&Mat->grid, Mat->dLogSArray, logrho, logs, SCVHEOS_EDGE_TOL, &scvheosInvertOpt, &cell, &logT);
 
-    for (int i=0; i<max_iter; i++) {
-        /* Do one iteration of the root solver. */
-        status = gsl_root_fsolver_iterate(Solver);
-
-        /* Estimate of the root. */
-        logT = gsl_root_fsolver_root(Solver);
-
-        /* Current interval that brackets the root. */
-        logT_min = gsl_root_fsolver_x_lower(Solver);
-        logT_max = gsl_root_fsolver_x_upper(Solver);
-
-        /* Test for convergence. */
-        status = gsl_root_test_interval(logT_min, logT_max, err_abs, err_rel);
-
-#if 0
-        if (status == GSL_SUCCESS)
-            fprintf(stderr, "Converged: x= %g\n", x);
-#endif
-        if (status != GSL_CONTINUE) break;
+    if (iret == INTERP_OUTSIDE_XMIN || iret == INTERP_OUTSIDE_XMAX) {
+        fprintf(stderr, "scvheosLogTofLogRhoLogS: logrho= %15.7E outside of the EOS table.\n", logrho);
+        SCVHEOS_FAIL_OR_EXIT();
     }
 
-    if (status != GSL_SUCCESS) logT = -1.0;
+    /*
+     * logs outside the column [s(T_min), s(T_max)]: clamp to the table edge,
+     * the convention ANEOSisentropicU uses (cold curve u(rho2, T_min) when S
+     * is not attained at rho2). Unlike there the fallback is counted in
+     * Mat->nLookupFail and reported with SCVHEOS_WARN rather than silent.
+     */
+    if (iret == INTERP_BELOW || iret == INTERP_ABOVE) {
+        int ix = 0; double w = 0.0;
+        interpLocateAxis(Mat->dLogRhoAxis, Mat->nRho, logrho, SCVHEOS_EDGE_TOL, &ix, &w);
+        Mat->nLookupFail++;
+        if (iret == INTERP_BELOW) {
+            SCVHEOS_WARN("scvheosLogTofLogRhoLogS: logs= %g below s(T_min)= %g at logrho= %g, "
+                         "falling back to logT_min= %g\n", logs,
+                         interpLineValue(&Mat->grid, Mat->dLogSArray, INTERP_ALONG_Y, ix, w, 0), logrho, Mat->LogTMin);
+            return Mat->LogTMin;
+        }
+        SCVHEOS_WARN("scvheosLogTofLogRhoLogS: logs= %g above s(T_max)= %g at logrho= %g, "
+                     "falling back to logT_max= %g\n", logs,
+                     interpLineValue(&Mat->grid, Mat->dLogSArray, INTERP_ALONG_Y, ix, w, Mat->nT - 1), logrho, Mat->LogTMax);
+        return Mat->LogTMax;
+    }
 
-    gsl_root_fsolver_free(Solver);
+    if (iret != INTERP_SUCCESS) {
+        fprintf(stderr, "scvheosLogTofLogRhoLogS: s column not monotonic at logs= %g logrho= %g.\n", logs, logrho);
+        SCVHEOS_FAIL_OR_EXIT();
+    }
 
     return logT;
 }
 
 /*
- * Calculate the density logrho(logP, logT).
+ * Calculate the density logrho(logP, logT) by direct inversion of the P row
+ * at logT (interpInvertX, strict mode).
+ *
+ * Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if the input is
+ * not finite, logT is outside the table, logP is outside the row
+ * [P(rho_min), P(rho_max)], or P(rho) is not monotonic at logP.
  */
 double scvheosLogRhoofLogPLogT(SCVHEOSMAT *Mat, double logP, double logT) {
-    /* GSL root finder */
-    gsl_root_fsolver *Solver;
-    const gsl_root_fsolver_type *SolverType;
-    gsl_function F;
-    struct LogPofLogRhoLogT_GSL_Params Params;
-    const double err_abs = 0.0;
-    const double err_rel = 1e-10;
-    int status;
-    int max_iter = 1000;
-    double logrho_min, logrho_max;
-    double logrho = 0.0;
+    INTERPCELL cell;
+    double logrho;
+    int iret;
 
-    /* Initialize the parameters. */
-    Params.Mat = Mat;
-    Params.logT = logT;
-    Params.logP = logP;
-
-    /* Initialize the function used for root finding. */
-    F.function = &LogPofLogRhoLogT_GSL_rootfinder;
-    F.params = &Params;
-
-    /* Initialize the root finder. */
-    SolverType = gsl_root_fsolver_brent;
-    SolverType = gsl_root_fsolver_bisection;
-    Solver = gsl_root_fsolver_alloc(SolverType);
-    assert(Solver != NULL);
-
-    /* Set minimum and maximum density. */ 
-    logrho_min = Mat->LogRhoMin;
-    logrho_max = Mat->LogRhoMax;
-
-    /* Make sure the root is bracketed.*/
-    if (LogPofLogRhoLogT_GSL_rootfinder(logrho_min, &Params)*LogPofLogRhoLogT_GSL_rootfinder(logrho_max, &Params) > 0.0) {
-        fprintf(stderr, "Could not bracket root.\n");
-        assert(0);
+    if (!isfinite(logP) || !isfinite(logT)) {
+        fprintf(stderr, "scvheosLogRhoofLogPLogT: invalid input logP= %g logT= %g.\n", logP, logT);
+        SCVHEOS_FAIL_OR_EXIT();
     }
 
-    gsl_root_fsolver_set(Solver, &F, logrho_min, logrho_max);
+    iret = interpInvertX(&Mat->grid, Mat->dLogPArray, logT, logP, SCVHEOS_EDGE_TOL, &scvheosInvertOpt, &cell, &logrho);
 
-    for (int i=0; i<max_iter; i++) {
-        /* Do one iteration of the root solver. */
-        status = gsl_root_fsolver_iterate(Solver);
-
-        /* Estimate of the root. */
-        logrho = gsl_root_fsolver_root(Solver);
-
-        /* Current interval that brackets the root. */
-        logrho_min = gsl_root_fsolver_x_lower(Solver);
-        logrho_max = gsl_root_fsolver_x_upper(Solver);
-
-        /* Test for convergence. */
-        status = gsl_root_test_interval(logrho_min, logrho_max, err_abs, err_rel);
-
-#if 0
-        if (status == GSL_SUCCESS)
-            fprintf(stderr, "Converged: x= %g\n", x);
-#endif
-        if (status != GSL_CONTINUE) break;
+    if (iret == INTERP_OUTSIDE_YMIN || iret == INTERP_OUTSIDE_YMAX) {
+        fprintf(stderr, "scvheosLogRhoofLogPLogT: logT= %15.7E outside of the EOS table.\n", logT);
+        SCVHEOS_FAIL_OR_EXIT();
     }
-
-    if (status != GSL_SUCCESS) logrho = -1.0;
-
-    gsl_root_fsolver_free(Solver);
+    if (iret != INTERP_SUCCESS) {
+        int iy = 0; double v = 0.0;
+        interpLocateAxis(Mat->dLogTAxis, Mat->nT, logT, SCVHEOS_EDGE_TOL, &iy, &v);
+        fprintf(stderr, "scvheosLogRhoofLogPLogT: logP= %g %s at logT= %g "
+                "(row P(rho_min)= %g P(rho_max)= %g, logrho in [%g, %g]).\n", logP,
+                (iret == INTERP_NONMONOTONIC) ? "in a non-monotonic row" : scvheosInvertStatus(iret), logT,
+                interpLineValue(&Mat->grid, Mat->dLogPArray, INTERP_ALONG_X, iy, v, 0),
+                interpLineValue(&Mat->grid, Mat->dLogPArray, INTERP_ALONG_X, iy, v, Mat->nRho - 1),
+                Mat->LogRhoMin, Mat->LogRhoMax);
+        SCVHEOS_FAIL_OR_EXIT();
+    }
 
     return logrho;
 }
 
 /*
  * Calculate the temperature T(rho, u).
+ *
+ * Returns SCVHEOS_FAIL_VALUE if the inversion fails.
  */
 double scvheosTofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
     double logrho;
     double logu;
-    double T;
+    double logT;
 
     logrho = log10(rho);
     logu = log10(u);
 
-    T = pow(Mat->dLogBase, scvheosLogTofLogRhoLogU(Mat, logrho, logu));
+    logT = scvheosLogTofLogRhoLogU(Mat, logrho, logu);
+    if (scvheosFailed(logT)) return SCVHEOS_FAIL_VALUE;
 
-    return T;
+    return scvheosExp10(logT);
 }
 
 /*
- * Calculate the temperature T(rho, s).
+ * Calculate the temperature T(rho, s). s is in cgs (erg g^-1 K^-1), as
+ * returned by scvheosSofRhoT.
+ *
+ * Returns SCVHEOS_FAIL_VALUE if the inversion fails.
  */
 double scvheosTofRhoS(SCVHEOSMAT *Mat, double rho, double s) {
     double logrho;
     double logs;
-    double T;
+    double logT;
 
     logrho = log10(rho);
     logs = log10(s);
 
-    T = pow(Mat->dLogBase, scvheosLogTofLogRhoLogS(Mat, logrho, logs));
+    logT = scvheosLogTofLogRhoLogS(Mat, logrho, logs);
+    if (scvheosFailed(logT)) return SCVHEOS_FAIL_VALUE;
 
-    return T;
+    return scvheosExp10(logT);
 }
 
 /*
  * Calculate the density rho(P, T).
+ *
+ * Returns SCVHEOS_FAIL_VALUE if the inversion fails (callers such as
+ * EOSWoolfsonCoeff test for rho <= 0).
  */
 double scvheosRhoofPT(SCVHEOSMAT *Mat, double P, double T) {
     double logP;
     double logT;
-    double rho;
+    double logrho;
 
     logP = log10(P);
     logT = log10(T);
 
-    rho = pow(Mat->dLogBase, scvheosLogRhoofLogPLogT(Mat, logP, logT));
+    logrho = scvheosLogRhoofLogPLogT(Mat, logP, logT);
+    if (scvheosFailed(logrho)) return SCVHEOS_FAIL_VALUE;
 
-    return rho;
+    return scvheosExp10(logrho);
+}
+
+/*
+ * Partial derivatives of the tabulated log quantities with respect to logrho
+ * (bWrtRho = TRUE) or logT (bWrtRho = FALSE), evaluated on the bilinear
+ * patch that contains (logrho, logT). Only defined inside the table: the
+ * lookup limits are the table bounds and the bilinear patch has no
+ * extrapolation. At a node the cell to the right/above is used (the last
+ * cell at the upper table edge).
+ */
+static double scvheosdLogdLog(SCVHEOSMAT *Mat, const double *Array,
+                              double logrho, double logT, int bWrtRho, const char *chFunc) {
+    INTERPCELL cell;
+    double dlr, dlT;
+
+    if (scvheosLocateLog(Mat, logrho, logT, &cell) != INTERP_SUCCESS) {
+	    fprintf(stderr, "%s: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", chFunc, logrho, logT);
+        exit(1);
+    }
+
+    interpCellGradient(&Mat->grid, Array, &cell, &dlr, &dlT);
+    return bWrtRho ? dlr : dlT;
 }
 
 /*
  * Calculate the derivative dlogP/dlogrho(logrho, logT).
  */
 double scvheosdLogPdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    /* Finite difference. */
-    double h = 1e-5*logrho;
-    double dLogPdLogRho;
-
-    if (!scvheosCheckBoundsLogRhoLogT(Mat, logrho, logT)) {
-	    fprintf(stderr, "scvheosdLogPdLogRhoofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-        exit(1);
-    }
-
-    /* If (rho, T) is inside of the EOS table use GSL. */
-    if (scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
-        if (gsl_interp2d_eval_deriv_y_e(Mat->InterpLogP, Mat->dLogTAxis, Mat->dLogRhoAxis,
-            Mat->dLogPArray, logT, logrho, Mat->xAccP, Mat->yAccP, &dLogPdLogRho) == GSL_EDOM) {
-            fprintf(stderr, "scvheosdLogPdLogRhoofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-            exit(1);
-        }
-        return dLogPdLogRho;
-    }
-    
-    if ((logrho-h > Mat->LogRhoMin) && (logrho+h < Mat->LogRhoMax)) {
-        /* Central difference. */
-        dLogPdLogRho = (scvheosLogPofLogRhoLogT(Mat, logrho+h, logT)-scvheosLogPofLogRhoLogT(Mat, logrho-h, logT))/(2.0*h);
-    } else if (logrho-h > Mat->LogRhoMin) {
-        /* Backward finite difference. */
-        dLogPdLogRho = (scvheosLogPofLogRhoLogT(Mat, logrho, logT) - scvheosLogPofLogRhoLogT(Mat, logrho-h, logT))/h;
-    } else if (logrho+h < Mat->LogRhoMax) {
-        /* Forward finite difference. */
-        dLogPdLogRho = (scvheosLogPofLogRhoLogT(Mat, logrho+h, logT) - scvheosLogPofLogRhoLogT(Mat, logrho, logT))/h;
-    } else {
-        /* Both points are problematic so h is reduced. */
-        h *= 1e-4;
-        dLogPdLogRho = (scvheosLogPofLogRhoLogT(Mat, logrho+h, logT) - scvheosLogPofLogRhoLogT(Mat, logrho-h, logT))/(2.0*h);
-    }
-
-    return dLogPdLogRho;
+    return scvheosdLogdLog(Mat, Mat->dLogPArray, logrho, logT, TRUE, __func__);
 }
 
 /*
  * Calculate the derivative dlogP/dlogT(logrho, logT).
  */
 double scvheosdLogPdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    /* Finite difference. */
-    double h = 1e-5*logT;
-    double dLogPdLogT;
-
-    if (!scvheosCheckBoundsLogRhoLogT(Mat, logrho, logT)) {
-	    fprintf(stderr, "scvheosdLogPdLogTofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-        exit(1);
-    }
-
-    /* If (rho, T) is inside of the EOS table use GSL. */
-    if (scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
-        if (gsl_interp2d_eval_deriv_x_e(Mat->InterpLogP, Mat->dLogTAxis, Mat->dLogRhoAxis,
-            Mat->dLogPArray, logT, logrho, Mat->xAccP, Mat->yAccP, &dLogPdLogT) == GSL_EDOM) {
-            fprintf(stderr, "scvheosdLogPdLogTofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-            exit(1);
-        }
-        return dLogPdLogT;
-    }
-
-    if ((logT-h > Mat->LogTMin) && (logT+h < Mat->LogTMax)) {
-        /* Central difference. */
-        dLogPdLogT = (scvheosLogPofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogPofLogRhoLogT(Mat, logrho, logT-h))/(2.0*h);
-    } else if (logT-h > Mat->LogTMin) {
-        /* Backward finite difference. */
-        dLogPdLogT = (scvheosLogPofLogRhoLogT(Mat, logrho, logT)-scvheosLogPofLogRhoLogT(Mat, logrho, logT-h))/h;
-    } else if (logT+h < Mat->LogTMax) {
-        /* Forward finite difference. */
-        dLogPdLogT = (scvheosLogPofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogPofLogRhoLogT(Mat, logrho, logT))/h;
-    } else {
-        /* Both points are problematic so h is reduced. */
-        h *= 1e-4;
-        dLogPdLogT = (scvheosLogPofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogPofLogRhoLogT(Mat, logrho, logT-h))/(2.0*h);
-    }
-
-    return dLogPdLogT;
+    return scvheosdLogdLog(Mat, Mat->dLogPArray, logrho, logT, FALSE, __func__);
 }
 
 /*
  * Calculate the derivative dlogu/dlogrho(logrho, logT).
  */
 double scvheosdLogUdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    /* Finite difference. */
-    double h = 1e-5*logrho;
-    double dLogUdLogRho;
-
-    if (!scvheosCheckBoundsLogRhoLogT(Mat, logrho, logT)) {
-	    fprintf(stderr, "scvheosdLogUdLogRhoofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-        exit(1);
-    }
-
-    /* If (rho, T) is inside of the EOS table use GSL. */
-    if (scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
-        if (gsl_interp2d_eval_deriv_y_e(Mat->InterpLogU, Mat->dLogTAxis, Mat->dLogRhoAxis,
-            Mat->dLogUArray, logT, logrho, Mat->xAccU, Mat->yAccU, &dLogUdLogRho) == GSL_EDOM) {
-            fprintf(stderr, "scvheosdLogUdLogRhoofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-            exit(1);
-        }
-        return dLogUdLogRho;
-    }
-    
-    if ((logrho-h > Mat->LogRhoMin) && (logrho+h < Mat->LogRhoMax)) {
-        /* Central difference. */
-        dLogUdLogRho = (scvheosLogUofLogRhoLogT(Mat, logrho+h, logT)-scvheosLogUofLogRhoLogT(Mat, logrho-h, logT))/(2.0*h);
-    } else if (logrho-h > Mat->LogRhoMin) {
-        /* Backward finite difference. */
-        dLogUdLogRho = (scvheosLogUofLogRhoLogT(Mat, logrho, logT)-scvheosLogUofLogRhoLogT(Mat, logrho-h, logT))/h;
-    } else if (logrho+h < Mat->LogRhoMax) {
-        /* Forward finite difference. */
-        dLogUdLogRho = (scvheosLogUofLogRhoLogT(Mat, logrho+h, logT)-scvheosLogUofLogRhoLogT(Mat, logrho, logT))/h;
-    } else {
-        /* Both points are problematic so h is reduced. */
-        h *= 1e-4;
-        dLogUdLogRho = (scvheosLogUofLogRhoLogT(Mat, logrho+h, logT)-scvheosLogUofLogRhoLogT(Mat, logrho-h, logT))/(2.0*h);
-    }
-
-    return dLogUdLogRho;
+    return scvheosdLogdLog(Mat, Mat->dLogUArray, logrho, logT, TRUE, __func__);
 }
 
 /*
  * Calculate the derivative dlogu/dlogT(logrho, logT).
  */
 double scvheosdLogUdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    /* Finite difference. */
-    double h = 1e-5*logT;
-    double dLogUdLogT;
-
-    if (!scvheosCheckBoundsLogRhoLogT(Mat, logrho, logT)) {
-	    fprintf(stderr, "scvheosdLogUdLogTofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-        exit(1);
-    }
-
-    /* If (rho, T) is inside of the EOS table use GSL. */
-    if (scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
-        if (gsl_interp2d_eval_deriv_x_e(Mat->InterpLogU, Mat->dLogTAxis, Mat->dLogRhoAxis,
-            Mat->dLogUArray, logT, logrho, Mat->xAccU, Mat->yAccU, &dLogUdLogT) == GSL_EDOM) {
-            fprintf(stderr, "scvheosdLogUdLogTofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-            exit(1);
-        }
-        return dLogUdLogT;
-    }
-
-    if ((logT-h > Mat->LogTMin) && (logT+h < Mat->LogTMax)) {
-        /* Central difference. */
-        dLogUdLogT = (scvheosLogUofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogUofLogRhoLogT(Mat, logrho, logT-h))/(2.0*h);
-    } else if (logT-h > Mat->LogTMin) {
-        /* Backward finite difference. */
-        dLogUdLogT = (scvheosLogUofLogRhoLogT(Mat, logrho, logT)-scvheosLogUofLogRhoLogT(Mat, logrho, logT-h))/h;
-    } else if (logT+h < Mat->LogTMax) {
-        /* Forward finite difference. */
-        dLogUdLogT = (scvheosLogUofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogUofLogRhoLogT(Mat, logrho, logT))/h;
-    } else {
-        /* Both points are problematic so h is reduced. */
-        h *= 1e-4;
-        dLogUdLogT = (scvheosLogUofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogUofLogRhoLogT(Mat, logrho, logT-h))/(2.0*h);
-    }
-
-    return dLogUdLogT;
+    return scvheosdLogdLog(Mat, Mat->dLogUArray, logrho, logT, FALSE, __func__);
 }
 
 /*
  * Calculate the derivative dlogs/dlogrho(logrho, logT).
  */
 double scvheosdLogSdLogRhoofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    /* Finite difference. */
-    double h = 1e-5*logrho;
-    double dLogSdLogRho;
-
-    if (!scvheosCheckBoundsLogRhoLogT(Mat, logrho, logT)) {
-	    fprintf(stderr, "scvheosdLogSdLogRhoofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-        exit(1);
-    }
-
-    /* If (rho, T) is inside of the EOS table use GSL. */
-    if (scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
-        if (gsl_interp2d_eval_deriv_y_e(Mat->InterpLogS, Mat->dLogTAxis, Mat->dLogRhoAxis,
-            Mat->dLogSArray, logT, logrho, Mat->xAccS, Mat->yAccS, &dLogSdLogRho) == GSL_EDOM) {
-            fprintf(stderr, "scvheosdLogSdLogRhoofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-            exit(1);
-        }
-        return dLogSdLogRho;
-    }
-
-    if ((logrho-h > Mat->LogRhoMin) && (logrho+h < Mat->LogRhoMax)) {
-        /* Central difference. */
-        dLogSdLogRho = (scvheosLogSofLogRhoLogT(Mat, logrho+h, logT)-scvheosLogSofLogRhoLogT(Mat, logrho-h, logT))/(2.0*h);
-    } else if (logrho-h > Mat->LogRhoMin) {
-        /* Backward finite difference. */
-        dLogSdLogRho = (scvheosLogSofLogRhoLogT(Mat, logrho, logT) - scvheosLogSofLogRhoLogT(Mat, logrho-h, logT))/h;
-    } else if (logrho+h < Mat->LogRhoMax) {
-        /* Forward finite difference. */
-        dLogSdLogRho = (scvheosLogSofLogRhoLogT(Mat, logrho+h, logT) - scvheosLogSofLogRhoLogT(Mat, logrho, logT))/h;
-    } else {
-        /* Both points are problematic so h is reduced. */
-        h *= 1e-4;
-        dLogSdLogRho = (scvheosLogSofLogRhoLogT(Mat, logrho+h, logT) - scvheosLogSofLogRhoLogT(Mat, logrho-h, logT))/(2.0*h);
-    }
-
-    return dLogSdLogRho;
+    return scvheosdLogdLog(Mat, Mat->dLogSArray, logrho, logT, TRUE, __func__);
 }
 
 /*
  * Calculate the derivative dlogs/dlogT(logrho, logT).
  */
 double scvheosdLogSdLogTofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    /* Finite difference. */
-    double h = 1e-5*logT;
-    double dLogSdLogT;
-
-    if (!scvheosCheckBoundsLogRhoLogT(Mat, logrho, logT)) {
-	    fprintf(stderr, "scvheosdLogSdLogTofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-        exit(1);
-    }
-
-    /* If (rho, T) is inside of the EOS table use GSL. */
-    if (scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT)) {
-        if (gsl_interp2d_eval_deriv_x_e(Mat->InterpLogS, Mat->dLogTAxis, Mat->dLogRhoAxis,
-            Mat->dLogSArray, logT, logrho, Mat->xAccS, Mat->yAccS, &dLogSdLogT) == GSL_EDOM) {
-            fprintf(stderr, "scvheosdLogSdLogTofLogRhoLogT: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", logrho, logT);
-            exit(1);
-        }
-        return dLogSdLogT;
-    }
-
-    if ((logT-h > Mat->LogTMin) && (logT+h < Mat->LogTMax)) {
-        /* Central difference. */
-        dLogSdLogT = (scvheosLogSofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogSofLogRhoLogT(Mat, logrho, logT-h))/(2.0*h);
-    } else if (logT-h > Mat->LogTMin) {
-        /* Backward finite difference. */
-        dLogSdLogT = (scvheosLogSofLogRhoLogT(Mat, logrho, logT)-scvheosLogSofLogRhoLogT(Mat, logrho, logT-h))/h;
-    } else if (logT+h < Mat->LogTMax) {
-        /* Forward finite difference. */
-        dLogSdLogT = (scvheosLogSofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogSofLogRhoLogT(Mat, logrho, logT))/h;
-    } else {
-        /* Both points are problematic so h is reduced. */
-        h *= 1e-4;
-        dLogSdLogT = (scvheosLogSofLogRhoLogT(Mat, logrho, logT+h)-scvheosLogSofLogRhoLogT(Mat, logrho, logT-h))/(2.0*h);
-    }
-
-    return dLogSdLogT;
+    return scvheosdLogdLog(Mat, Mat->dLogSArray, logrho, logT, FALSE, __func__);
 }
 
 /*
- * Calculate the derivative dP/drho(rho, T).
+ * Locate (rho, T) in the table for the (rho, T) derivatives. Returns 0, or
+ * -1 after a message if the state is not finite or outside the table.
+ */
+static int scvheosLocateRhoT(SCVHEOSMAT *Mat, const char *chFunc, double rho, double T, INTERPCELL *cell) {
+    double logrho, logT;
+
+    if (!(rho > 0.0) || !(T > 0.0) || !isfinite(rho) || !isfinite(T)) {
+        fprintf(stderr, "%s: invalid input rho= %g T= %g.\n", chFunc, rho, T);
+        return -1;
+    }
+    logrho = log10(rho);
+    logT = log10(T);
+    if (scvheosLocateLog(Mat, logrho, logT, cell) != INTERP_SUCCESS) {
+        fprintf(stderr, "%s: logrho= %15.7E logT= %15.7E outside of the EOS table.\n", chFunc, logrho, logT);
+        return -1;
+    }
+    return 0;
+}
+
+/*
+ * (f/x) dlogf/dlogx on the patch: the linear-space derivative of one table
+ * in the located cell with respect to rho (bWrtRho) or T, where x is that
+ * coordinate's linear value.
+ */
+static double scvheosdFdX(SCVHEOSMAT *Mat, const double *Array, const INTERPCELL *cell, double x, int bWrtRho) {
+    double dlr, dlT;
+    interpCellGradient(&Mat->grid, Array, cell, &dlr, &dlT);
+    return scvheosExp10(interpCellValue(&Mat->grid, Array, cell))/x*(bWrtRho ? dlr : dlT);
+}
+
+/*
+ * Calculate the derivative dP/drho(rho, T) = (P/rho) dlogP/dlogrho on the
+ * bilinear patch. Returns SCVHEOS_FAIL_VALUE (or exits) outside the table.
  */
 double scvheosdPdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
-    double logrho;
-    double logT;
-    double P;
-    double dLogPdLogRho;
-    
-    logrho = log10(rho);
-    logT = log10(T);
-
-    // CR: Here it is probably a bit more efficient if we calculate P=10**log(P)
-    P = scvheosPofRhoT(Mat, rho, T);
-    dLogPdLogRho = scvheosdLogPdLogRhoofLogRhoLogT(Mat, logrho, logT);
-    
-    /* dP/dx = P/x*dln(P)/dln(rho). */
-    return P/rho*dLogPdLogRho;
+    INTERPCELL cell;
+    if (scvheosLocateRhoT(Mat, __func__, rho, T, &cell) != 0) SCVHEOS_FAIL_OR_EXIT();
+    return scvheosdFdX(Mat, Mat->dLogPArray, &cell, rho, TRUE);
 }
 
 /*
- * Calculate the derivative dP/dT(rho, T).
+ * Calculate the derivative dP/dT(rho, T) = (P/T) dlogP/dlogT.
  */
 double scvheosdPdTofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
-    double logrho;
-    double logT;
-    double P;
-    double dLogPdLogT;
-    
-    logrho = log10(rho);
-    logT = log10(T);
-
-    P = scvheosPofRhoT(Mat, rho, T);
-    dLogPdLogT = scvheosdLogPdLogTofLogRhoLogT(Mat, logrho, logT);
-    
-    return P/T*dLogPdLogT;
+    INTERPCELL cell;
+    if (scvheosLocateRhoT(Mat, __func__, rho, T, &cell) != 0) SCVHEOS_FAIL_OR_EXIT();
+    return scvheosdFdX(Mat, Mat->dLogPArray, &cell, T, FALSE);
 }
 
 /*
- * Calculate the derivative du/drho(rho, T).
+ * Calculate the derivative du/drho(rho, T) = (u/rho) dlogu/dlogrho.
  */
 double scvheosdUdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
-    double logrho;
-    double logT;
-    double u;
-    double dLogUdLogRho;
-    
-    logrho = log10(rho);
-    logT = log10(T);
-
-    u = scvheosUofRhoT(Mat, rho, T);
-    dLogUdLogRho = scvheosdLogUdLogRhoofLogRhoLogT(Mat, logrho, logT);
-    
-    return u/rho*dLogUdLogRho;
+    INTERPCELL cell;
+    if (scvheosLocateRhoT(Mat, __func__, rho, T, &cell) != 0) SCVHEOS_FAIL_OR_EXIT();
+    return scvheosdFdX(Mat, Mat->dLogUArray, &cell, rho, TRUE);
 }
 
 /*
- * Calculate the derivative du/dT(rho, T).
+ * Calculate the derivative du/dT(rho, T) = (u/T) dlogu/dlogT, the specific
+ * heat capacity at constant volume.
  */
 double scvheosdUdTofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
-    double logrho;
-    double logT;
-    double u;
-    double dLogUdLogT;
-    
-    logrho = log10(rho);
-    logT = log10(T);
-
-    u = scvheosUofRhoT(Mat, rho, T);
-    dLogUdLogT = scvheosdLogUdLogTofLogRhoLogT(Mat, logrho, logT);
-    
-    return u/T*dLogUdLogT;
+    INTERPCELL cell;
+    if (scvheosLocateRhoT(Mat, __func__, rho, T, &cell) != 0) SCVHEOS_FAIL_OR_EXIT();
+    return scvheosdFdX(Mat, Mat->dLogUArray, &cell, T, FALSE);
 }
 
 /*
- * Calculate the derivative dSdRho(rho, T).
+ * Calculate the derivative ds/drho(rho, T) = (s/rho) dlogs/dlogrho (s in cgs).
  */
 double scvheosdSdRhoofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
-    /* Finite difference. */
-    double h = 1e-5*rho;
-    double dSdRho;
-
-    dSdRho = (scvheosSofRhoT(Mat, rho+h, T)-scvheosSofRhoT(Mat, rho-h, T))/(2.0*h);
-    return dSdRho;
+    INTERPCELL cell;
+    if (scvheosLocateRhoT(Mat, __func__, rho, T, &cell) != 0) SCVHEOS_FAIL_OR_EXIT();
+    return scvheosdFdX(Mat, Mat->dLogSArray, &cell, rho, TRUE);
 }
+
 /*
- * Calculate the derivative dSdT(rho, T).
+ * Calculate the derivative ds/dT(rho, T) = (s/T) dlogs/dlogT (s in cgs).
  */
 double scvheosdSdTofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
-    /* Finite difference. */
-    double h = 1e-5*T;
-    double dSdT;
-
-    dSdT = (scvheosSofRhoT(Mat, rho, T+h)-scvheosSofRhoT(Mat, rho, T-h))/(2.0*h);
-    return dSdT;
+    INTERPCELL cell;
+    if (scvheosLocateRhoT(Mat, __func__, rho, T, &cell) != 0) SCVHEOS_FAIL_OR_EXIT();
+    return scvheosdFdX(Mat, Mat->dLogSArray, &cell, T, FALSE);
 }
 
 /*
- * Calculate dPdrho(rho, u).
+ * The four partials of logP and logu on the patch, for the (rho, u) derivatives.
+ */
+static void scvheosCellPartials(const SCVHEOSMAT *Mat, const INTERPCELL *cell,
+                                double *dlPdlr, double *dlPdlT, double *dludlr, double *dludlT) {
+    interpCellGradient(&Mat->grid, Mat->dLogPArray, cell, dlPdlr, dlPdlT);
+    interpCellGradient(&Mat->grid, Mat->dLogUArray, cell, dludlr, dludlT);
+}
+
+/*
+ * Calculate dP/drho at constant u, analytically from the bilinear patch:
+ *
+ *   dP/drho|_u = dP/drho|_T - dP/dT|_rho * (du/drho|_T) / (du/dT|_rho)
+ *
+ * With the tables in log form, dP/drho|_T = (P/rho) dlogP/dlogrho etc., so
+ *
+ *   dP/drho|_u = (P/rho) [dlogP/dlogrho - dlogP/dlogT * dlogu/dlogrho / dlogu/dlogT].
+ *
+ * Returns SCVHEOS_FAIL_VALUE (or exits without SCVH_NOEXIT) if (rho, u)
+ * cannot be located or du/dT|rho <= 0 in the cell (the heat capacity must be
+ * positive; a non-positive value is a table artefact).
  */
 double scvheosdPdRhoofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
-    double h = 1e-6*rho;
-    double dPdRho;
-    double UMinRight;
-    double UMinLeft;
-    double TMin;
+    INTERPCELL cell;
+    double logT, P;
+    double dlPdlr, dlPdlT, dludlr, dludlT;
 
-    /* Limit of the EOS table defines the minimum temperature. */
-    TMin = pow(Mat->dLogBase, Mat->dLogTAxis[0]);
-
-    /* Check if (rho-h, u) and (rho+h, u) are inside of the EOS table. */
-    UMinLeft = scvheosUofRhoT(Mat, rho-h, TMin);
-    UMinRight = scvheosUofRhoT(Mat, rho+h, TMin);
-
-    if ((UMinLeft <= u) && (UMinRight <= u)) {
-        /* Both left and right value are smaller than u. */
-        dPdRho = (scvheosPofRhoU(Mat, rho+h, u) - scvheosPofRhoU(Mat, rho-h, u))/(2.0*h);
-    } else if (UMinLeft <= u) {
-        /* Backward finite difference. */
-        dPdRho = (scvheosPofRhoU(Mat, rho, u) - scvheosPofRhoU(Mat, rho-h, u))/h;
-    } else if (UMinRight <= u) {
-        /* Forward finite difference. */
-        dPdRho = (scvheosPofRhoU(Mat, rho+h, u) - scvheosPofRhoU(Mat, rho, u))/h;
-    } else {
-        /* Both points are problematic so h is reduced. */
-        h *= 1e-4;
-        dPdRho = (scvheosPofRhoU(Mat, rho+h, u) - scvheosPofRhoU(Mat, rho-h, u))/(2.0*h);
+    if (scvheosLocateRhoU(Mat, __func__, rho, u, &cell, &logT) != 0) {
+        SCVHEOS_FAIL_OR_EXIT();
     }
-    return dPdRho;
+
+    scvheosCellPartials(Mat, &cell, &dlPdlr, &dlPdlT, &dludlr, &dludlT);
+
+    if (!(dludlT > 0.0)) {
+        fprintf(stderr, "scvheosdPdRhoofRhoU: dlogu/dlogT= %g <= 0 at rho= %g u= %g (cell jRho= %i iT= %i).\n",
+                dludlT, rho, u, cell.ix, cell.iy);
+        SCVHEOS_FAIL_OR_EXIT();
+    }
+
+    P = scvheosExp10(interpCellValue(&Mat->grid, Mat->dLogPArray, &cell));
+
+    return P/rho*(dlPdlr - dlPdlT*dludlr/dludlT);
 }
 
 /*
- * Calculate dPdu(rho, u).
+ * Calculate dP/du at constant rho, analytically from the bilinear patch:
+ *
+ *   dP/du|_rho = dP/dT|_rho / du/dT|_rho = (P/u) dlogP/dlogT / dlogu/dlogT.
+ *
+ * Same failure conditions as scvheosdPdRhoofRhoU.
  */
 double scvheosdPdUofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
-    double h = fabs(1e-5*u);
-    double dPdU;
+    INTERPCELL cell;
+    double logT, P;
+    double dlPdlr, dlPdlT, dludlr, dludlT;
 
-    dPdU = (scvheosPofRhoU(Mat, rho, u+h) - scvheosPofRhoU(Mat, rho, u))/h;
+    if (scvheosLocateRhoU(Mat, __func__, rho, u, &cell, &logT) != 0) {
+        SCVHEOS_FAIL_OR_EXIT();
+    }
 
-    return dPdU;
+    scvheosCellPartials(Mat, &cell, &dlPdlr, &dlPdlT, &dludlr, &dludlT);
+
+    if (!(dludlT > 0.0)) {
+        fprintf(stderr, "scvheosdPdUofRhoU: dlogu/dlogT= %g <= 0 at rho= %g u= %g (cell jRho= %i iT= %i).\n",
+                dludlT, rho, u, cell.ix, cell.iy);
+        SCVHEOS_FAIL_OR_EXIT();
+    }
+
+    P = scvheosExp10(interpCellValue(&Mat->grid, Mat->dLogPArray, &cell));
+
+    return P/u*dlPdlT/dludlT;
 }
 
 /*
  * Calculate u2 so that (rho1, u1) and (rho2, u2) are on the same isentrope.
+ *
+ * If the entropy S(rho1, u1) is not attained at rho2 the state is clamped to
+ * the table edge: u(rho2, T_min) (the cold curve) when it would fall below
+ * the table, u(rho2, T_max) above it. This follows ANEOSisentropicU; the
+ * fallback is counted in Mat->nLookupFail. Returns SCVHEOS_FAIL_VALUE if
+ * rho1 or rho2 is outside the table or (rho1, u1) cannot be inverted.
  */
 double scvheosIsentropicU(SCVHEOSMAT *Mat, double rho1, double u1, double rho2) {
     double T1;
@@ -1282,11 +1302,16 @@ double scvheosIsentropicU(SCVHEOSMAT *Mat, double rho1, double u1, double rho2) 
     double u2;
 
     T1 = scvheosTofRhoU(Mat, rho1, u1);
+    if (scvheosFailed(T1)) return SCVHEOS_FAIL_VALUE;
+
     S = scvheosSofRhoT(Mat, rho1, T1);
+    if (scvheosFailed(S)) return SCVHEOS_FAIL_VALUE;
 
     T2 = scvheosTofRhoS(Mat, rho2, S);
+    if (scvheosFailed(T2)) return SCVHEOS_FAIL_VALUE;
    
     u2 = scvheosUofRhoT(Mat, rho2, T2);
+    if (scvheosFailed(u2)) return SCVHEOS_FAIL_VALUE;
 
     return u2;
 }
@@ -1328,81 +1353,43 @@ int scvheosCheckBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
 }
 
 /*
- * Check if a value (rho, u) is inside of the extrapolation limits.
+ * Check if a value (rho, u) is inside of the EOS table.
+ *
+ * Returns SCVHEOS_SUCCESS, or one of SCVHEOS_OUTSIDE_RHOMIN, _RHOMAX, _TMIN,
+ * _TMAX. The energy bounds are u(rho, T_min) and u(rho, T_max) of the table
+ * column, which assumes u(T) is monotonic at fixed rho (the same assumption
+ * scvheosLogTofLogRhoLogU makes). The bounds are compared with the same
+ * roundoff tolerance the inversion applies to its target, so a state that
+ * passes this test can be inverted.
+ *
+ * rho <= 0 reports RHOMIN and u <= 0 reports TMIN: log10 of a non-positive
+ * number is NaN or -inf, and the comparisons below would otherwise let the
+ * state through. Non-finite input is reported the same way.
  */
 int scvheosIsInExtrapLimit(SCVHEOSMAT *Mat, double rho, double u) {
-    double logrho = log10(rho);
-    double logu = log10(u);
-
-    if (logrho < Mat->LogRhoMin) return SCVHEOS_OUTSIDE_RHOMIN;
-    if (logrho > Mat->LogRhoMax) return SCVHEOS_OUTSIDE_RHOMAX;
-    if (logu < scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMin)) return SCVHEOS_OUTSIDE_TMIN;
-    // if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMax)) return SCVHEOS_OUTSIDE_TMAX;
-#if 0
-    // CR: 03.10.2022
-    if (logu > scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMax)) {
-        fprintf(stderr, "scvheosIsInExtrapLimit:\n");
-        fprintf(stderr, "rho= %g ", rho);
-        fprintf(stderr, "logrho= %g ", logrho);
-        fprintf(stderr, "u= %g ", u);
-        fprintf(stderr, "logu= %g\n", logu);
-        fprintf(stderr, "LogTMin= %g ", Mat->LogTMin);
-        fprintf(stderr, "LogTMax= %g ", Mat->LogTMax);
-        fprintf(stderr, "loguMin= %g\n", scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMin));
-        fprintf(stderr, "loguMax= %g\n", scvheosLogUofLogRhoLogT(Mat, logrho, Mat->LogTMin));
-
-        return SCVHEOS_OUTSIDE_TMAX;
-    }
-#endif
-    return SCVHEOS_SUCCESS;
-}
-
-/* Functions required by the GSL root finder. */
-double LogUofLogRhoLogT_GSL_rootfinder(double logT, void *params) {
-    SCVHEOSMAT *Mat;
     double logrho;
     double logu;
 
-    struct LogUofLogRhoLogT_GSL_Params *p;
+    if (!(rho > 0.0) || !isfinite(rho)) return SCVHEOS_OUTSIDE_RHOMIN;
+    if (!(u > 0.0) || !isfinite(u)) return SCVHEOS_OUTSIDE_TMIN;
 
-    p = (struct LogUofLogRhoLogT_GSL_Params *) params;
+    logrho = log10(rho);
+    logu = log10(u);
 
-    Mat = p->Mat;
-    logrho = p->logrho;
-    logu = p->logu;
+    /* Same roundoff tolerance at the edges as the lookups themselves. */
+    {
+        int ix = 0; double w = 0.0;
+        int iret = interpLocateAxis(Mat->dLogRhoAxis, Mat->nRho, logrho, SCVHEOS_EDGE_TOL, &ix, &w);
+        if (iret == INTERP_BELOW) return SCVHEOS_OUTSIDE_RHOMIN;
+        if (iret != INTERP_SUCCESS) return SCVHEOS_OUTSIDE_RHOMAX;
+        {
+            const double umin = interpLineValue(&Mat->grid, Mat->dLogUArray, INTERP_ALONG_Y, ix, w, 0);
+            const double umax = interpLineValue(&Mat->grid, Mat->dLogUArray, INTERP_ALONG_Y, ix, w, Mat->nT - 1);
+            const double eps = SCVHEOS_EDGE_TOL*(1.0 + fabs(logu));
+            if (logu < umin - eps) return SCVHEOS_OUTSIDE_TMIN;
+            if (logu > umax + eps) return SCVHEOS_OUTSIDE_TMAX;
+        }
+    }
 
-    return (scvheosLogUofLogRhoLogT(Mat, logrho, logT)-logu);
+    return SCVHEOS_SUCCESS;
 }
-
-double LogSofLogRhoLogT_GSL_rootfinder(double logT, void *params) {
-    SCVHEOSMAT *Mat;
-    double logrho;
-    double logs;
-
-    struct LogSofLogRhoLogT_GSL_Params *p;
-
-    p = (struct LogSofLogRhoLogT_GSL_Params *) params;
-
-    Mat = p->Mat;
-    logrho = p->logrho;
-    logs = p->logs;
-
-    return (scvheosLogSofLogRhoLogT(Mat, logrho, logT)-logs);
-}
-
-double LogPofLogRhoLogT_GSL_rootfinder(double logrho, void *params) {
-    SCVHEOSMAT *Mat;
-    double logT;
-    double logP;
-
-    struct LogPofLogRhoLogT_GSL_Params *p;
-
-    p = (struct LogPofLogRhoLogT_GSL_Params *) params;
-
-    Mat = p->Mat;
-    logT = p->logT;
-    logP = p->logP;
-
-    return (scvheosLogPofLogRhoLogT(Mat, logrho, logT)-logP);
-}
-
