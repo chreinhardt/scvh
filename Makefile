@@ -3,14 +3,11 @@ SCVHEOS_OBJ = scvheos.o
 
 OBJ = $(SCVHEOS_OBJ)
 
-# The same objects built with -DSCVH_NOEXIT: failed lookups return
-# SCVHEOS_FAIL_VALUE instead of exiting. Only the test suite uses them.
-NOEXIT_OBJ = $(OBJ:.o=.noexit.o)
-
 # Executables
 EXE = testscvheos
 
-# Definitions
+# Definitions. -DEOSLIB_VERBOSE prints a diagnostic for every failed lookup
+# (see SCVHEOS_WARN in scvheos.h); the library never exits on a failed lookup.
 DEFS =
 
 # GNU Science library (uncomment if not needed)
@@ -25,19 +22,14 @@ default:
 
 all: default
 
-%.noexit.o: %.c
-	$(CC) $(CFLAGS) -DSCVH_NOEXIT -c $< -o $@
-
 #
 # Test the SCVHEOS library.
 #
 # testscvheos is the test suite (invariants on any table, see testscvheos.c).
-# It needs the non-exiting library for the failure-contract test, so it links
-# scvheos.noexit.o, never the production scvheos.o. Run: ./testscvheos [iMat]
-# with the table in the working directory; the exit status is the number of
-# failed checks.
+# Run: ./testscvheos [iMat] with the table in the working directory; the
+# exit status is the number of failed checks.
 #
-testscvheos: testscvheos.noexit.o $(NOEXIT_OBJ)
+testscvheos: testscvheos.o $(OBJ)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 check: testscvheos
@@ -145,7 +137,7 @@ calc_rhot_isentropes: calc_rhot_isentropes.o $(OBJ)
 .PHONY: default all check clean cleanall
 
 clean:
-	rm -f $(OBJ) $(NOEXIT_OBJ) testscvheos.noexit.o
+	rm -f $(OBJ) testscvheos.o
 
 cleanall:
-	rm -f $(EXE) $(OBJ) $(NOEXIT_OBJ) *.o
+	rm -f $(EXE) $(OBJ) *.o

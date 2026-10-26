@@ -33,11 +33,10 @@
  * table defects: they are reported by the first test and skipped where the
  * library's documented response (failure or clamp) is not an invariant.
  *
- * The failure contract (SCVHEOS_FAIL_VALUE instead of exit) only exists when
- * the library is built with -DSCVH_NOEXIT; those checks are compiled in only
- * then (see the Makefile target, which builds its own scvheos.noexit.o).
- * The library prints a diagnostic for every failed lookup; those messages are
- * expected in the last test.
+ * The failure contract (SCVHEOS_FAIL_VALUE, the T_min fallback of T(rho, u),
+ * the T_min/T_max clamps of T(rho, s), nLookupFail) is tested last; with
+ * -DEOSLIB_VERBOSE the library prints a diagnostic for every failed lookup,
+ * so messages are expected there.
  */
 #include <float.h>
 #include <math.h>
@@ -109,7 +108,7 @@ static const char *currentTest = "";
 /* Informational line inside a running test; re-indents so END_TEST aligns. */
 #define NOTE(...) do { printf("\n    note: "); printf(__VA_ARGS__); printf("\n  %-44s", ""); } while (0)
 
-static int isSentinel(double v) { return v < -1e40; }
+static int isSentinel(double v) { return scvheosFailed(v); }
 
 /* Table access: A[j*nT + i], j along rho, i along T. */
 #define LOGP(m, j, i) ((m)->dLogPArray[(size_t)(j) * (m)->nT + (i)])
@@ -590,71 +589,88 @@ static void testExtrapLimit(SCVHEOSMAT *m)
     END_TEST();
 }
 
-#ifdef SCVH_NOEXIT
 static void testFailureContract(SCVHEOSMAT *m)
 {
     int failsBefore = nFails;
-    TEST("out-of-table inputs return SCVHEOS_FAIL_VALUE");
-    long nf0 = m->nLookupFail;
+    TEST("failure contract: sentinel, T_min fallback, count");
+    long nf0 = m->nLookupFail, nf;
     double rhoOk = sampleRho(m, NSAMPLE_RHO / 2), TOk = sampleT(m, NSAMPLE_T / 2);
     double rhoLo = 0.5 * tenpow(m->LogRhoMin), rhoHi = 2.0 * tenpow(m->LogRhoMax);
     double TLo = 0.5 * tenpow(m->LogTMin), THi = 2.0 * tenpow(m->LogTMax);
+    double TMin = tenpow(m->LogTMin), TMax = tenpow(m->LogTMax);
     double uOk = scvheosUofRhoT(m, rhoOk, TOk);
-    double uLo = 0.5 * scvheosUofRhoT(m, rhoOk, tenpow(m->LogTMin));
-    double uHi = 2.0 * scvheosUofRhoT(m, rhoOk, tenpow(m->LogTMax));
+    double uLo = 0.5 * scvheosUofRhoT(m, rhoOk, TMin);
+    double uHi = 2.0 * scvheosUofRhoT(m, rhoOk, TMax);
     double c, T, P;
 
     CHECK(uLo > 0.0 && uHi > 0.0, "u at the column ends failed");
 
-    /* Forward lookups. */
-    CHECK(scvheosUofRhoT(m, rhoLo, TOk) == SCVHEOS_FAIL_VALUE, "UofRhoT below rhoMin");
-    CHECK(scvheosUofRhoT(m, rhoHi, TOk) == SCVHEOS_FAIL_VALUE, "UofRhoT above rhoMax");
-    CHECK(scvheosUofRhoT(m, rhoOk, TLo) == SCVHEOS_FAIL_VALUE, "UofRhoT below TMin");
-    CHECK(scvheosUofRhoT(m, rhoOk, THi) == SCVHEOS_FAIL_VALUE, "UofRhoT above TMax");
-    CHECK(scvheosPofRhoT(m, rhoHi, TOk) == SCVHEOS_FAIL_VALUE, "PofRhoT above rhoMax");
-    CHECK(scvheosSofRhoT(m, rhoHi, TOk) == SCVHEOS_FAIL_VALUE, "SofRhoT above rhoMax");
-    CHECK(scvheosCsofRhoT(m, rhoHi, TOk) == SCVHEOS_FAIL_VALUE, "CsofRhoT above rhoMax");
-    CHECK(scvheosUofRhoT(m, -1.0, TOk) == SCVHEOS_FAIL_VALUE, "UofRhoT negative rho");
-    CHECK(scvheosUofRhoT(m, rhoOk, -1.0) == SCVHEOS_FAIL_VALUE, "UofRhoT negative T");
+    /* Forward lookups: sentinel, each counted once. */
+    nf = m->nLookupFail;
+    CHECK(scvheosFailed(scvheosUofRhoT(m, rhoLo, TOk)), "UofRhoT below rhoMin");
+    CHECK(scvheosFailed(scvheosUofRhoT(m, rhoHi, TOk)), "UofRhoT above rhoMax");
+    CHECK(scvheosFailed(scvheosUofRhoT(m, rhoOk, TLo)), "UofRhoT below TMin");
+    CHECK(scvheosFailed(scvheosUofRhoT(m, rhoOk, THi)), "UofRhoT above TMax");
+    CHECK(scvheosFailed(scvheosPofRhoT(m, rhoHi, TOk)), "PofRhoT above rhoMax");
+    CHECK(scvheosFailed(scvheosSofRhoT(m, rhoHi, TOk)), "SofRhoT above rhoMax");
+    CHECK(scvheosFailed(scvheosCsofRhoT(m, rhoHi, TOk)), "CsofRhoT above rhoMax");
+    CHECK(scvheosFailed(scvheosUofRhoT(m, -1.0, TOk)), "UofRhoT negative rho");
+    CHECK(scvheosFailed(scvheosUofRhoT(m, rhoOk, -1.0)), "UofRhoT negative T");
+    CHECK(m->nLookupFail == nf + 9, "forward failures not counted (%ld -> %ld)", nf, m->nLookupFail);
 
-    /* Inversions: u and P fail outside the column; s clamps and counts. */
-    CHECK(scvheosTofRhoU(m, rhoOk, uLo) == SCVHEOS_FAIL_VALUE, "TofRhoU below cold curve");
-    CHECK(scvheosTofRhoU(m, rhoOk, uHi) == SCVHEOS_FAIL_VALUE, "TofRhoU above top row");
-    CHECK(scvheosTofRhoU(m, rhoHi, uOk) == SCVHEOS_FAIL_VALUE, "TofRhoU above rhoMax");
-    CHECK(scvheosTofRhoU(m, rhoOk, -1.0) == SCVHEOS_FAIL_VALUE, "TofRhoU negative u");
-    CHECK(scvheosPofRhoU(m, rhoOk, uHi) == SCVHEOS_FAIL_VALUE, "PofRhoU above top row");
-    CHECK(scvheosCsofRhoU(m, rhoOk, uLo) == SCVHEOS_FAIL_VALUE, "CsofRhoU below cold curve");
-    CHECK(scvheosRhoofPT(m, 1e-3 * scvheosPofRhoT(m, tenpow(m->LogRhoMin), TOk), TOk) == SCVHEOS_FAIL_VALUE, "RhoofPT below the row");
-    CHECK(scvheosRhoofPT(m, 1e3 * scvheosPofRhoT(m, tenpow(m->LogRhoMax), TOk), TOk) == SCVHEOS_FAIL_VALUE, "RhoofPT above the row");
-    CHECK(scvheosRhoofPT(m, 1.0, THi) == SCVHEOS_FAIL_VALUE, "RhoofPT above TMax");
-    CHECK(m->nLookupFail == nf0, "failures counted as fallbacks (%ld -> %ld)", nf0, m->nLookupFail);
+    /* T(rho, u) at a valid rho never fails: it falls back to T_min and counts. */
+    nf = m->nLookupFail;
+    CHECK_REL(scvheosTofRhoU(m, rhoOk, uLo), TMin, 1e-12, "TofRhoU below cold curve -> T_min");
+    CHECK_REL(scvheosTofRhoU(m, rhoOk, uHi), TMin, 1e-12, "TofRhoU above top row -> T_min");
+    CHECK_REL(scvheosTofRhoU(m, rhoOk, -1.0), TMin, 1e-12, "TofRhoU negative u -> T_min");
+    CHECK_REL(scvheosTofRhoU(m, rhoOk, NAN), TMin, 1e-12, "TofRhoU NaN u -> T_min");
+    CHECK(m->nLookupFail == nf + 4, "fallbacks not counted (%ld -> %ld)", nf, m->nLookupFail);
+    /* ... and the (rho, u) functions then evaluate at (rho, T_min). */
+    CHECK_REL(scvheosPofRhoU(m, rhoOk, uHi), scvheosPofRhoT(m, rhoOk, TMin), 1e-12, "PofRhoU above top row = P(rho, T_min)");
+    CHECK_REL(scvheosCsofRhoU(m, rhoOk, uLo), scvheosCsofRhoT(m, rhoOk, TMin), 1e-12, "CsofRhoU below cold curve = cs(rho, T_min)");
+    c = T = 1.0; P = scvheosPCTofRhoU(m, rhoOk, uHi, &c, &T);
+    CHECK_REL(T, TMin, 1e-12, "PCTofRhoU above top row: T");
+    CHECK_REL(P, scvheosPofRhoT(m, rhoOk, TMin), 1e-12, "PCTofRhoU above top row: P");
+    CHECK_REL(c, scvheosCsofRhoT(m, rhoOk, TMin), 1e-12, "PCTofRhoU above top row: c");
+    c = T = 1.0; P = scvheosPCTofRhoU(m, rhoOk, -1.0, &c, &T);
+    CHECK_REL(T, TMin, 1e-12, "PCTofRhoU negative u: T");
+    CHECK_REL(scvheosIsentropicU(m, rhoOk, uLo, rhoOk), scvheosUofRhoT(m, rhoOk, TMin), 1e-9, "IsentropicU from below the cold curve = u(rho, T_min)");
+    /* rho outside the table: sentinel for P and c, T_min for T (never fails). */
+    CHECK_REL(scvheosTofRhoU(m, rhoHi, uOk), TMin, 1e-12, "TofRhoU above rhoMax -> T_min");
+    CHECK_REL(scvheosTofRhoU(m, rhoLo, uOk), TMin, 1e-12, "TofRhoU below rhoMin -> T_min");
+    CHECK_REL(scvheosTofRhoU(m, -1.0, uOk), TMin, 1e-12, "TofRhoU negative rho -> T_min");
+    c = T = 1.0; P = scvheosPCTofRhoU(m, rhoHi, uOk, &c, &T);
+    CHECK(scvheosFailed(P) && scvheosFailed(c) && T == TMin, "PCTofRhoU above rhoMax: P=%g c=%g T=%g", P, c, T);
+
+    /* rho(P, T). */
+    CHECK(scvheosFailed(scvheosRhoofPT(m, 1e-3 * scvheosPofRhoT(m, tenpow(m->LogRhoMin), TOk), TOk)), "RhoofPT below the row");
+    CHECK(scvheosFailed(scvheosRhoofPT(m, 1e3 * scvheosPofRhoT(m, tenpow(m->LogRhoMax), TOk), TOk)), "RhoofPT above the row");
+    CHECK(scvheosFailed(scvheosRhoofPT(m, 1.0, THi)), "RhoofPT above TMax");
+    CHECK(scvheosFailed(scvheosRhoofPT(m, -1.0, TOk)), "RhoofPT negative P");
+
+    /* T(rho, s) clamps to the edges and counts. */
     {
-        double sLo = 0.5 * scvheosSofRhoT(m, rhoOk, tenpow(m->LogTMin)), sHi = 2.0 * scvheosSofRhoT(m, rhoOk, tenpow(m->LogTMax));
+        double sLo = 0.5 * scvheosSofRhoT(m, rhoOk, TMin), sHi = 2.0 * scvheosSofRhoT(m, rhoOk, TMax);
         CHECK(sLo > 0.0 && sHi > 0.0, "s at the column ends failed");
-        CHECK_REL(scvheosTofRhoS(m, rhoOk, sLo), tenpow(m->LogTMin), 1e-12, "TofRhoS clamps to TMin");
-        CHECK_REL(scvheosTofRhoS(m, rhoOk, sHi), tenpow(m->LogTMax), 1e-12, "TofRhoS clamps to TMax");
-        CHECK(m->nLookupFail == nf0 + 2, "clamps not counted (%ld -> %ld)", nf0, m->nLookupFail);
-        CHECK(scvheosTofRhoS(m, rhoHi, sLo) == SCVHEOS_FAIL_VALUE, "TofRhoS above rhoMax");
+        nf = m->nLookupFail;
+        CHECK_REL(scvheosTofRhoS(m, rhoOk, sLo), TMin, 1e-12, "TofRhoS clamps to TMin");
+        CHECK_REL(scvheosTofRhoS(m, rhoOk, sHi), TMax, 1e-12, "TofRhoS clamps to TMax");
+        CHECK(m->nLookupFail == nf + 2, "clamps not counted (%ld -> %ld)", nf, m->nLookupFail);
+        CHECK(scvheosFailed(scvheosTofRhoS(m, rhoHi, sLo)), "TofRhoS above rhoMax");
     }
 
-    /* Fused lookup sets all three outputs. */
-    c = T = 1.0; P = scvheosPCTofRhoU(m, rhoHi, uOk, &c, &T);
-    CHECK(P == SCVHEOS_FAIL_VALUE && c == SCVHEOS_FAIL_VALUE && T == SCVHEOS_FAIL_VALUE, "PCTofRhoU above rhoMax: P=%g c=%g T=%g", P, c, T);
-    c = T = 1.0; P = scvheosPCTofRhoU(m, rhoOk, uHi, &c, &T);
-    CHECK(P == SCVHEOS_FAIL_VALUE && c == SCVHEOS_FAIL_VALUE && T == SCVHEOS_FAIL_VALUE, "PCTofRhoU above top row: P=%g c=%g T=%g", P, c, T);
-    c = T = 1.0; P = scvheosPCTofRhoU(m, rhoOk, -1.0, &c, &T);
-    CHECK(P == SCVHEOS_FAIL_VALUE && c == SCVHEOS_FAIL_VALUE && T == SCVHEOS_FAIL_VALUE, "PCTofRhoU negative u: P=%g c=%g T=%g", P, c, T);
-
     /* Derivatives and the isentrope. */
-    CHECK(scvheosdPdRhoofRhoU(m, rhoOk, uHi) == SCVHEOS_FAIL_VALUE, "dPdRhoofRhoU above top row");
-    CHECK(scvheosdPdUofRhoU(m, rhoHi, uOk) == SCVHEOS_FAIL_VALUE, "dPdUofRhoU above rhoMax");
-    CHECK(scvheosdPdRhoofRhoT(m, rhoOk, THi) == SCVHEOS_FAIL_VALUE, "dPdRhoofRhoT above TMax");
-    CHECK(scvheosdPdTofRhoT(m, rhoLo, TOk) == SCVHEOS_FAIL_VALUE, "dPdTofRhoT below rhoMin");
-    CHECK(scvheosIsentropicU(m, rhoOk, uOk, rhoHi) == SCVHEOS_FAIL_VALUE, "IsentropicU to rho above rhoMax");
-    CHECK(scvheosIsentropicU(m, rhoHi, uOk, rhoOk) == SCVHEOS_FAIL_VALUE, "IsentropicU from rho above rhoMax");
+    CHECK(scvheosFailed(scvheosdPdUofRhoU(m, rhoHi, uOk)), "dPdUofRhoU above rhoMax");
+    CHECK(scvheosFailed(scvheosdPdRhoofRhoT(m, rhoOk, THi)), "dPdRhoofRhoT above TMax");
+    CHECK(scvheosFailed(scvheosdPdTofRhoT(m, rhoLo, TOk)), "dPdTofRhoT below rhoMin");
+    CHECK(scvheosFailed(scvheosdLogPdLogRhoofLogRhoLogT(m, m->LogRhoMax + 1.0, log10(TOk))), "dLogPdLogRho above rhoMax");
+    CHECK(scvheosFailed(scvheosIsentropicU(m, rhoOk, uOk, rhoHi)), "IsentropicU to rho above rhoMax");
+    CHECK(scvheosFailed(scvheosIsentropicU(m, rhoHi, uOk, rhoOk)), "IsentropicU from rho above rhoMax");
+
+    CHECK(m->nLookupFail > nf0, "nothing counted (%ld -> %ld)", nf0, m->nLookupFail);
+    m->nLookupFail = nf0;
     END_TEST();
 }
-#endif
 
 /* ------------------------------------------------------------------- main */
 
@@ -682,11 +698,7 @@ int main(int argc, char *argv[])
     testSoundSpeedTable(m);
     testIsentrope(m);
     testExtrapLimit(m);
-#ifdef SCVH_NOEXIT
-    testFailureContract(m);   /* last: deliberately triggers failure messages */
-#else
-    printf("  (failure-contract test skipped: build with -DSCVH_NOEXIT)\n");
-#endif
+    testFailureContract(m);   /* last: triggers failure messages under EOSLIB_VERBOSE */
 
     scvheosFinalizeMaterial(m);
 

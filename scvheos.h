@@ -3,7 +3,7 @@
  *
  * Author:   Christian Reinhardt
  * Created:  02.04.2020
- * Modified: 23.10.2026
+ * Modified: 26.10.2026
  */
 #ifndef SCVHEOS_HINCLUDED
 #define SCVHEOS_HINCLUDED
@@ -34,11 +34,17 @@
  *          bound instead of 1e-13*(1 + |x|); SCVHEOSMAT is read-only after
  *          initialisation apart from nLookupFail. Same inversion (strict
  *          mode) and same failure contract as 1.1.
+ *   1.3.0  EOSlib failure contract (see SCVHEOS_FAIL_VALUE): lookups never
+ *          exit, SCVH_NOEXIT and SCVHEOS_VERBOSE are gone, messages only
+ *          with -DEOSLIB_VERBOSE (SCVHEOS_WARN), every failure counted in
+ *          nLookupFail, T(rho, u) falls back to T_min like ANEOSTofRhoU,
+ *          scvheosFailed() in the header; the log-space derivatives no
+ *          longer exit outside the table.
  */
-#define SCVHEOS_VERSION_TEXT      "1.2.1"
+#define SCVHEOS_VERSION_TEXT      "1.3.0"
 #define SCVHEOS_VERSION_MAJOR     1
-#define SCVHEOS_VERSION_MINOR     2
-#define SCVHEOS_VERSION_PATCH     1
+#define SCVHEOS_VERSION_MINOR     3
+#define SCVHEOS_VERSION_PATCH     0
 
 /* Required version of the interpBilinear core; checked at compile time. */
 #define INTERP_VERSION_MAJOR_REQUIRED 1
@@ -67,15 +73,46 @@
 #define SCVHEOS_FAIL  -99
 
 /*
- * Value returned by the EOS functions when a lookup or an inversion fails
- * and the library is compiled with SCVH_NOEXIT (without it the functions
- * exit). It is returned both by the log-space functions (in log space) and
- * by the linear-space wrappers (rho, u, T, P, s, cs), so callers can test
- * for x < -1e40 in either case. A failed inversion (target outside the
- * table column, or a non-monotonic column) is treated the same way as any
- * other failed lookup.
+ * Failure contract (the EOSlib convention, shared by all EOS libraries).
+ *
+ * A failed lookup never exits. The EOS functions return SCVHEOS_FAIL_VALUE
+ * when the state is not positive and finite or outside the table, when an
+ * inversion has no solution (rho(P, T), a non-monotonic column) or when a
+ * derivative is undefined; it is returned both by the log-space functions
+ * (in log space) and by the linear-space wrappers (rho, u, T, P, s, cs), and
+ * scvheosPCTofRhoU sets *c to it as well. Two inversions fall back to a
+ * table edge instead:
+ *  - T(rho, u) never returns the sentinel (same contract as ANEOSTofRhoU):
+ *    rho outside the table, or u below the cold curve u(rho, T_min), above
+ *    u(rho, T_max), not positive, or in a non-monotonic column gives T_min,
+ *    the lowest tabulated temperature (scvheosPCTofRhoU sets *T to it too);
+ *    at a valid rho all (rho, u) functions then evaluate at (rho, T_min);
+ *  - T(rho, s) at a valid rho: s below s(rho, T_min) gives T_min, above
+ *    s(rho, T_max) gives T_max (the ANEOSisentropicU convention for the
+ *    isentrope).
+ *
+ * Every failure and every fallback is counted in Mat->nLookupFail and
+ * reported on stderr only when the library is compiled with -DEOSLIB_VERBOSE
+ * (SCVHEOS_WARN). Test a returned value with scvheosFailed(x) (true for the
+ * sentinel and for NaN, in log or linear space); EOSlib exposes the same
+ * test as EOSFailed(). Errors during initialisation (missing or defective
+ * table, unknown material) are fatal.
  */
 #define SCVHEOS_FAIL_VALUE (-1e50)
+
+static inline int scvheosFailed(double x) {
+    return !(x > -1e40);
+}
+
+/*
+ * Diagnostic messages of the lookups, only with -DEOSLIB_VERBOSE. The
+ * silent variant still type-checks the arguments but compiles to nothing.
+ */
+#ifdef EOSLIB_VERBOSE
+#define SCVHEOS_WARN(...) fprintf(stderr, __VA_ARGS__)
+#else
+#define SCVHEOS_WARN(...) do { if (0) fprintf(stderr, __VA_ARGS__); } while (0)
+#endif
 
 /*
  * Reference density rho0 (cgs). A gas has no natural reference density;
@@ -164,9 +201,9 @@ typedef struct scvheosMat {
     double *dLogCArray;
 
     /*
-     * Number of lookups that had to fall back to a table edge (currently:
-     * scvheosLogTofLogRhoLogS clamping to T_min/T_max). Same role as
-     * nLookupFail in ANEOSmaterial. Only incremented, never reset.
+     * Number of failed lookups and edge fallbacks since initialisation (see
+     * SCVHEOS_FAIL_VALUE). Same role as nLookupFail in ANEOSmaterial. Only
+     * incremented by the library, never reset.
      */
     long nLookupFail;
 } SCVHEOSMAT;
