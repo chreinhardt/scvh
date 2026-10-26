@@ -35,10 +35,10 @@
  *          initialisation apart from nLookupFail. Same inversion (strict
  *          mode) and same failure contract as 1.1.
  */
-#define SCVHEOS_VERSION_TEXT      "1.2.0"
+#define SCVHEOS_VERSION_TEXT      "1.2.1"
 #define SCVHEOS_VERSION_MAJOR     1
 #define SCVHEOS_VERSION_MINOR     2
-#define SCVHEOS_VERSION_PATCH     0
+#define SCVHEOS_VERSION_PATCH     1
 
 /* Required version of the interpBilinear core; checked at compile time. */
 #define INTERP_VERSION_MAJOR_REQUIRED 1
