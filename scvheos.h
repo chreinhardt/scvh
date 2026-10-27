@@ -42,20 +42,31 @@
  *          longer exit outside the table. scvheosGenerateSoundSpeedTable checks
  *          Mat == NULL before the first dereference. An inconsistent unit pair
  *          (exactly one of dKpcUnit, dMsolUnit <= 0, NaN, inf) is fatal; it
- *          silently meant cgs.
+ *          silently meant cgs. Requires interpBilinear 1.0.3 with
+ *          INTERP_ABI_VERSION 1 (SCVHEOS_INTERP_*, prefixed: the unprefixed
+ *          INTERP_*_REQUIRED clashed with the other vendoring libraries).
  */
 #define SCVHEOS_VERSION_TEXT      "1.3.0"
 #define SCVHEOS_VERSION_MAJOR     1
 #define SCVHEOS_VERSION_MINOR     3
 #define SCVHEOS_VERSION_PATCH     0
 
-/* Required version of the interpBilinear core; checked at compile time. */
-#define INTERP_VERSION_MAJOR_REQUIRED 1
-#define INTERP_VERSION_MINOR_REQUIRED 0
-#define INTERP_VERSION_PATCH_REQUIRED 2
+/*
+ * interpBilinear: the minimum version and the layout of its types this library needs. The names
+ * carry the library prefix because ANEOSmaterial, scvheos and reos3 all vendor the core and their
+ * headers meet in one translation unit (EOSlib), where only the first copy of the core is
+ * included (see INTERP_ABI_VERSION in interpBilinear.h). Checked at compile time.
+ */
+#define SCVHEOS_INTERP_VERSION_MAJOR_REQUIRED 1
+#define SCVHEOS_INTERP_VERSION_MINOR_REQUIRED 0
+#define SCVHEOS_INTERP_VERSION_PATCH_REQUIRED 3
+#define SCVHEOS_INTERP_ABI_VERSION 1
 #if (INTERP_VERSION_MAJOR * 10000 + INTERP_VERSION_MINOR * 100 + INTERP_VERSION_PATCH) < \
-    (INTERP_VERSION_MAJOR_REQUIRED * 10000 + INTERP_VERSION_MINOR_REQUIRED * 100 + INTERP_VERSION_PATCH_REQUIRED)
-#error "scvheos: the vendored interpBilinear is older than the required version"
+    (SCVHEOS_INTERP_VERSION_MAJOR_REQUIRED * 10000 + SCVHEOS_INTERP_VERSION_MINOR_REQUIRED * 100 + SCVHEOS_INTERP_VERSION_PATCH_REQUIRED)
+#error "scvheos: the interpBilinear in effect is older than the required version (in EOSlib: the copy of the first library header included)"
+#endif
+#if !defined(INTERP_ABI_VERSION) || (INTERP_ABI_VERSION != SCVHEOS_INTERP_ABI_VERSION)
+#error "scvheos: the interpBilinear in effect has another type layout (INTERP_ABI_VERSION) than this library; update the vendored copies together"
 #endif
 
 /*
