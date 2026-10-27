@@ -1311,6 +1311,7 @@ int scvheosPrintMat(SCVHEOSMAT *Mat, FILE *fp) {
     fprintf(fp,"# Table boundaries (cgs units):\n");
     fprintf(fp,"# LogRhoMin=%15.7E LogRhoMax=%15.7E\n", Mat->dLogRhoAxis[0]+log10(Mat->dGmPerCcUnit), Mat->dLogRhoAxis[Mat->nRho-1]+log10(Mat->dGmPerCcUnit));
     fprintf(fp,"# LogTMin=%15.7E LogTMax=%15.7E\n", Mat->dLogTAxis[0], Mat->dLogTAxis[Mat->nT-1]);
+    fprintf(fp,"# Failed lookups and fallbacks (nLookupFail): %ld\n", Mat->nLookupFail);
 
     return SCVHEOS_SUCCESS;
 }

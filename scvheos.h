@@ -46,6 +46,7 @@
  *          INTERP_ABI_VERSION 1 (SCVHEOS_INTERP_*, prefixed: the unprefixed
  *          INTERP_*_REQUIRED clashed with the other vendoring libraries).
  *          New scvheosUCold, so that EOSlib no longer reads LogTMin.
+ *          scvheosPrintMat prints nLookupFail.
  */
 #define SCVHEOS_VERSION_TEXT      "1.3.0"
 #define SCVHEOS_VERSION_MAJOR     1
