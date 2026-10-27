@@ -601,6 +601,31 @@ static void testExtrapLimit(SCVHEOSMAT *m)
     END_TEST();
 }
 
+/* The cold curve accessor EOSlib uses: u(rho, T_min) on the first T row, the sentinel (counted) outside. */
+static void testUCold(SCVHEOSMAT *m)
+{
+    int failsBefore = nFails;
+    TEST("scvheosUCold");
+    long nf0 = m->nLookupFail;
+    for (int a = 0; a < NSAMPLE_RHO; a++) {
+        double lr = sampleLogRho(m, a), rho = tenpow(lr);
+        /* The reference goes through 10^x <-> log10 round trips (also of T_min), each losing
+         * |log10 u| ln10 eps; u reaches 1e-42 in code units in the real tables (cold dense corner).
+         * scvheosUCold reads the first row directly and is the more exact of the two. */
+        double uref = scvheosUofRhoT(m, rho, tenpow(m->LogTMin));
+        double tol = 1e-14 + 16.0 * DBL_EPSILON * 2.302585092994046 * (1.0 + fabs(log10(uref)));
+        CHECK_REL(scvheosUCold(m, rho), uref, tol, "UCold = u(rho, T_min) at rho=%g", rho);
+        CHECK_ABS(log10(scvheosUCold(m, rho)), bilinear(m, m->dLogUArray, lr, m->LogTMin), 1e-12, "UCold on the first row at logrho=%g", lr);
+    }
+    CHECK_REL(scvheosUCold(m, tenpow(m->LogRhoMax)), tenpow(LOGU(m, m->nRho - 1, 0)), 1e-12, "UCold at the last node");
+    CHECK(m->nLookupFail == nf0, "in-table UCold counted");
+    CHECK(scvheosFailed(scvheosUCold(m, 2.0 * tenpow(m->LogRhoMax))), "UCold above rhoMax");
+    CHECK(scvheosFailed(scvheosUCold(m, -1.0)), "UCold for rho < 0");
+    CHECK(m->nLookupFail == nf0 + 2, "UCold failures counted (%ld -> %ld)", nf0, m->nLookupFail);
+    m->nLookupFail = nf0;
+    END_TEST();
+}
+
 static void testFailureContract(SCVHEOSMAT *m)
 {
     int failsBefore = nFails;
@@ -760,6 +785,7 @@ int main(int argc, char *argv[])
     testSoundSpeedTable(m);
     testIsentrope(m);
     testExtrapLimit(m);
+    testUCold(m);
     testFailureContract(m);   /* last: triggers failure messages under EOSLIB_VERBOSE */
     testUnitPair(iMat);
 

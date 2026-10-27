@@ -1293,6 +1293,15 @@ double scvheosIsentropicU(SCVHEOSMAT *Mat, double rho1, double u1, double rho2) 
     return u2;
 }
 
+/*
+ * The cold curve of the table: u(rho, T_min), evaluated on the first T row (no 10^x round trip of
+ * T_min).
+ */
+double scvheosUCold(SCVHEOSMAT *Mat, double rho) {
+    double logu = scvheosLogUofLogRhoLogT(Mat, log10(rho), Mat->LogTMin);
+    if (scvheosFailed(logu)) return SCVHEOS_FAIL_VALUE;
+    return scvheosExp10(logu);
+}
 
 int scvheosPrintMat(SCVHEOSMAT *Mat, FILE *fp) {
     if (!fp) return SCVHEOS_FAIL;

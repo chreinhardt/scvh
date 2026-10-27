@@ -45,6 +45,7 @@
  *          silently meant cgs. Requires interpBilinear 1.0.3 with
  *          INTERP_ABI_VERSION 1 (SCVHEOS_INTERP_*, prefixed: the unprefixed
  *          INTERP_*_REQUIRED clashed with the other vendoring libraries).
+ *          New scvheosUCold, so that EOSlib no longer reads LogTMin.
  */
 #define SCVHEOS_VERSION_TEXT      "1.3.0"
 #define SCVHEOS_VERSION_MAJOR     1
@@ -276,6 +277,9 @@ double scvheosdPdRhoofRhoU(SCVHEOSMAT *Mat, double rho, double u);
 double scvheosdPdUofRhoU(SCVHEOSMAT *Mat, double rho, double u);
 
 double scvheosIsentropicU(SCVHEOSMAT *Mat, double rho1, double u1, double rho2);
+
+/* u(rho, T_min), the cold curve of the table (code units); SCVHEOS_FAIL_VALUE (counted) outside the table. */
+double scvheosUCold(SCVHEOSMAT *Mat, double rho);
 
 int scvheosPrintMat(SCVHEOSMAT *Mat, FILE *fp);
 
