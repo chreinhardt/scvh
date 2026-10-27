@@ -542,13 +542,16 @@ cleanup:
  * replaced nodes is reported on stderr.
  */
 int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
-    const int nT = Mat->nT, nRho = Mat->nRho;
+    int nT, nRho;
     double *rhoNode, *TNode;
     int nReplaced = 0;
     const int nReport = 10;   /* print at most this many defective nodes */
 
+    /* Check before the first dereference (the sizes were read in the initializers before). */
     if (Mat == NULL)
         return SCVHEOS_FAIL;
+    nT = Mat->nT;
+    nRho = Mat->nRho;
 
     if ((Mat->dLogRhoAxis == NULL) || (Mat->dLogTAxis == NULL) || (Mat->dLogPArray == NULL) || (Mat->dLogUArray == NULL))
         return SCVHEOS_FAIL;

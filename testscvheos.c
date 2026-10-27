@@ -483,6 +483,13 @@ static void testSoundSpeedTable(SCVHEOSMAT *m)
             }
         }
     if (nFloor) NOTE("%d interior nodes carry the cs^2 = P/rho floor (table defect)", nFloor);
+    /* Argument checks: a NULL material is rejected before any dereference, and an
+     * existing table is not regenerated (or leaked). */
+    CHECK(scvheosGenerateSoundSpeedTable(NULL) == SCVHEOS_FAIL, "NULL material must be rejected");
+    {
+        double *c0 = m->dLogCArray;
+        CHECK(scvheosGenerateSoundSpeedTable(m) == SCVHEOS_FAIL && m->dLogCArray == c0, "existing sound-speed table must not be regenerated");
+    }
     END_TEST();
 }
 
