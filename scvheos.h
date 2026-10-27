@@ -40,7 +40,9 @@
  *          nLookupFail, T(rho, u) falls back to T_min like ANEOSTofRhoU,
  *          scvheosFailed() in the header; the log-space derivatives no
  *          longer exit outside the table. scvheosGenerateSoundSpeedTable checks
- *          Mat == NULL before the first dereference.
+ *          Mat == NULL before the first dereference. An inconsistent unit pair
+ *          (exactly one of dKpcUnit, dMsolUnit <= 0, NaN, inf) is fatal; it
+ *          silently meant cgs.
  */
 #define SCVHEOS_VERSION_TEXT      "1.3.0"
 #define SCVHEOS_VERSION_MAJOR     1

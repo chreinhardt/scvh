@@ -136,6 +136,16 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
      * Memory for the EOS tables is allocated in scvheosReadTable. The number of data points nRho
      * and nT are set in the function if the table was read correctly.
      */
+    /*
+     * Unit system (the same rule in EOSlib and every sublibrary): both units > 0 and finite are code
+     * units, both <= 0 is cgs; anything else (exactly one of them <= 0, NaN, inf) is a caller error.
+     */
+    if (!(((dKpcUnit > 0.0) && (dMsolUnit > 0.0) && isfinite(dKpcUnit) && isfinite(dMsolUnit)) || ((dKpcUnit <= 0.0) && (dMsolUnit <= 0.0)))) {
+        fprintf(stderr, "scvheosInitMaterial: invalid unit system dKpcUnit= %g dMsolUnit= %g (give both > 0 for code units or both <= 0 for cgs).\n", dKpcUnit, dMsolUnit);
+        assert(0);
+        exit(1);
+    }
+
     Mat = (SCVHEOSMAT *) calloc(1, sizeof(SCVHEOSMAT));
     assert(Mat != NULL);
 
