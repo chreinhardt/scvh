@@ -554,6 +554,44 @@ static void testIsentrope(SCVHEOSMAT *m)
             }
         }
     }
+    /*
+     * A start point above the u column: the isentrope starts from the top row s(rho1, T_max), the
+     * same isentrope as from u(rho1, T_max) itself, counted once (up to scvheos 1.3.0 it started
+     * from the T_min fallback and u2 was the cold curve at rho2). Below the cold curve (and for
+     * u1 <= 0) it starts from s(rho1, T_min), the isentrope from the cold curve.
+     */
+    {
+        static const double fac[5] = {1.0 / 5.0, 1.0 / 1.2, 1.0, 1.2, 5.0};
+        const double Tmax = tenpow(m->LogTMax), Tmin = tenpow(m->LogTMin);
+        int nTested = 0;
+        for (int a = 1; a < NSAMPLE_RHO - 1; a += 7) {
+            double lr1 = sampleLogRho(m, a), rho1 = tenpow(lr1);
+            int j1 = findCell(m->dLogRhoAxis, m->nRho, lr1);
+            if (!monotonicInColumn(m, m->dLogUArray, j1) || !monotonicInColumn(m, m->dLogSArray, j1)) continue;
+            double uTop = scvheosUofRhoT(m, rho1, Tmax), uCold = scvheosUofRhoT(m, rho1, Tmin);
+            const double u1s[3] = { 2.0 * uTop, 0.5 * uCold, -1.0 };
+            const double uRef1[3] = { uTop, uCold, uCold };
+            CHECK(scvheosIsInExtrapLimit(m, rho1, u1s[0]) == SCVHEOS_OUTSIDE_TMAX, "u above the column at rho=%g", rho1);
+            for (int f = 0; f < 5; f++) {
+                double rho2 = fac[f] * rho1;
+                if (log10(rho2) < m->LogRhoMin || log10(rho2) > m->LogRhoMax) continue;
+                for (int q = 0; q < 3; q++) {
+                    double uRef = scvheosIsentropicU(m, rho1, uRef1[q], rho2);
+                    long nf = m->nLookupFail;
+                    double u2 = scvheosIsentropicU(m, rho1, u1s[q], rho2);
+                    CHECK(m->nLookupFail == nf + 1, "isentrope from u1=%g outside the column counted %ld times (rho=%g->%g)", u1s[q], m->nLookupFail - nf, rho1, rho2);
+                    CHECK(!isSentinel(u2), "isentrope from u1=%g outside the column failed (rho=%g->%g)", u1s[q], rho1, rho2);
+                    CHECK_REL(u2, uRef, 1e-12, "isentrope from u1=%g = isentrope from the column end (rho=%g->%g)", u1s[q], rho1, rho2);
+                    if (f == 2) CHECK_REL(u2, uRef1[q], 1e-9, "isentrope from u1=%g to the same rho is the column end (rho=%g)", u1s[q], rho1);
+                }
+                CHECK(scvheosIsentropicU(m, rho1, u1s[0], rho2) > scvheosUofRhoT(m, rho2, Tmin) * (1.0 + 1e-12),
+                      "isentrope from above the column on the cold curve (rho=%g->%g)", rho1, rho2);
+                nTested++;
+            }
+        }
+        CHECK(nTested > 0, "no isentrope from outside the column was tested");
+        NOTE("%d isentropes started outside the u column", nTested);
+    }
     m->nLookupFail = nf0;
     if (nSkipped) NOTE("%d isentrope checks skipped (non-monotonic column, table defect)", nSkipped);
     END_TEST();

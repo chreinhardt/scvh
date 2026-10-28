@@ -1307,20 +1307,38 @@ double scvheosdPdUofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
  *
  * If the entropy S(rho1, u1) is not attained at rho2 the state is clamped to
  * the table edge: u(rho2, T_min) (the cold curve) when it would fall below
- * the table, u(rho2, T_max) above it. This follows ANEOSisentropicU. Returns
- * SCVHEOS_FAIL_VALUE if rho1 or rho2 is outside the table; (rho1, u1) that
- * cannot be inverted falls back to T_min (scvheosTofRhoU). A call counts at
- * most once in nLookupFail, however many of these steps fail or fall back
- * (up to 1.3.0 rho1 outside the table counted twice).
+ * the table, u(rho2, T_max) above it. This follows ANEOSisentropicU. The start
+ * point is clamped the same way: (rho1, u1) above the u column starts from
+ * s(rho1, T_max), the top row, and below the cold curve (or u1 <= 0, NaN) from
+ * s(rho1, T_min), the T(rho, u) fallback. Up to 1.3.0 both started from
+ * s(rho1, T_min), so a state above the table followed the coldest isentrope
+ * and lost all its thermal energy; the energy above the top row is lost
+ * either way. Returns SCVHEOS_FAIL_VALUE if rho1 or rho2 is outside the
+ * table. A call counts at most once in nLookupFail, however many of these
+ * steps fail or fall back (up to 1.3.0 rho1 outside the table counted twice).
  */
 double scvheosIsentropicU(SCVHEOSMAT *Mat, double rho1, double u1, double rho2) {
     const long nLookupFail0 = Mat->nLookupFail;
-    double T2;
-    double S;
+    INTERPCELL cell;
+    double logT1, T2;
+    double S = SCVHEOS_FAIL_VALUE;
     double u2 = SCVHEOS_FAIL_VALUE;
 
-    /* s(rho1, u1) in the cell of (rho1, u1): T fallback and density check in one lookup. */
-    S = scvheosSofRhoU(Mat, rho1, u1);
+    /* s(rho1, u1) in the cell of (rho1, u1), as scvheosSofRhoU: T fallback and density check in one lookup. */
+    if (scvheosLocateRhoU(Mat, __func__, rho1, u1, &cell, &logT1) == 0) {
+        /*
+         * u1 not inverted (counted, the only count of a successful locate): the locate fell back
+         * to T_min. Above the column (log u1 > log u(rho1, T_max)) the isentrope starts from the
+         * top row instead. The strict inversion fails only outside the end nodes, so this is
+         * above both of them. u1 <= 0 or NaN gives a NaN logu and stays at T_min.
+         */
+        if (Mat->nLookupFail > nLookupFail0 &&
+            log10(u1) > interpLineValue(&Mat->grid, Mat->dLogUArray, INTERP_ALONG_Y, cell.ix, cell.u, Mat->nT - 1)) {
+            cell.iy = Mat->nT - 2;
+            cell.v = 1.0;
+        }
+        S = scvheosExp10(interpCellValue(&Mat->grid, Mat->dLogSArray, &cell));
+    }
     if (!scvheosFailed(S)) {
         T2 = scvheosTofRhoS(Mat, rho2, S);
         if (!scvheosFailed(T2)) {

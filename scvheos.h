@@ -63,6 +63,10 @@
  *          fail (the strict inversion of interpBilinear cannot detect it), it gives a root that
  *          need not be the physical one; only a target outside the end nodes falls back, clamps
  *          or fails. No change in behaviour.
+ *          scvheosIsentropicU starts an isentrope from (rho1, u1) above the u column at
+ *          s(rho1, T_max), the top row, like the clamp at rho2; it started from s(rho1, T_min)
+ *          (the T(rho, u) fallback), so u2 was the cold curve at rho2 and the thermal energy
+ *          was lost. Below the cold curve it still starts from s(rho1, T_min).
  */
 #define SCVHEOS_VERSION_TEXT      "1.3.0"
 #define SCVHEOS_VERSION_MAJOR     1
