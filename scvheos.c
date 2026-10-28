@@ -404,6 +404,12 @@ int scvheosReadTable(SCVHEOSMAT *Mat, const char *chInFile, int nRho, int nT, in
         return SCVHEOS_FAIL;
     }
 
+    /* A cell needs two nodes on each axis (interpBilinear's convention; reos3ReadTable checks the same). */
+    if ((nRho < 2) || (nT < 2)) {
+        fprintf(stderr, "scvheosReadTable: nRho= %i nT= %i (need at least 2 each).\n", nRho, nT);
+        return SCVHEOS_FAIL;
+    }
+
     /*
      * The table arrays stay allocated on failure: scvheosFinalizeMaterial
      * frees them. Only the local resources (fp, chLine) are released here,
@@ -1331,7 +1337,7 @@ double scvheosUCold(SCVHEOSMAT *Mat, double rho) {
 int scvheosPrintMat(SCVHEOSMAT *Mat, FILE *fp) {
     if (!fp) return SCVHEOS_FAIL;
 	fprintf(fp,"# Material: %i (%s)\n", Mat->iMat, Mat->MatString);
-	fprintf(fp,"# Reference density rho0: %g\n", Mat->rho0);
+	fprintf(fp,"# Reference density rho0 (cgs units): %g\n", Mat->rho0*Mat->dGmPerCcUnit);
 	fprintf(fp,"# Table size: nRho = %d, nT = %d\n", Mat->nRho, Mat->nT);
     fprintf(fp,"# Table boundaries (cgs units):\n");
     fprintf(fp,"# LogRhoMin=%15.7E LogRhoMax=%15.7E\n", Mat->dLogRhoAxis[0]+log10(Mat->dGmPerCcUnit), Mat->dLogRhoAxis[Mat->nRho-1]+log10(Mat->dGmPerCcUnit));

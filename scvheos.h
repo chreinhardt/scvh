@@ -56,6 +56,9 @@
  *          Edge tolerance on the log axes SCVHEOS_EDGE_TOL*|bound| +
  *          SCVHEOS_EDGE_TOL_ABS (a log bound at 0 had none); uses the *Tol
  *          functions of interpBilinear (to be required when its version is bumped).
+ *          scvheosReadTable rejects nRho < 2 or nT < 2 (no cell), like reos3ReadTable.
+ *          scvheosPrintMat prints rho0 in cgs with the unit, like the table boundaries and
+ *          reos3PrintMat (it printed the code-unit value unlabelled).
  */
 #define SCVHEOS_VERSION_TEXT      "1.3.0"
 #define SCVHEOS_VERSION_MAJOR     1

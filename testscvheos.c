@@ -627,6 +627,49 @@ static void testUCold(SCVHEOSMAT *m)
     END_TEST();
 }
 
+/*
+ * scvheosReadTable needs two nodes on each axis (one cell): nRho or nT below 2 is rejected before
+ * the file is read, like reos3ReadTable (up to scvheos 1.3.0 it was accepted, and the grid of a
+ * single node has no cell). scvheosPrintMat prints rho0 in cgs with the unit (it printed the
+ * code-unit value unlabelled).
+ */
+static void testReadTableSizeAndPrint(SCVHEOSMAT *m)
+{
+    int failsBefore = nFails;
+    TEST("table size check, rho0 in PrintMat");
+    static const int sizes[3][2] = { {1, 76}, {460, 1}, {0, 0} };
+    for (int k = 0; k < 3; k++) {
+        SCVHEOSMAT *t = (SCVHEOSMAT *) calloc(1, sizeof(SCVHEOSMAT));
+        /* The expected message goes to /dev/null. */
+        fflush(stderr);
+        int err = dup(2), devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) { dup2(devnull, 2); close(devnull); }
+        int r = scvheosReadTable(t, "scvh_extended_dt_hydrogen_722_helium_278.data", sizes[k][0], sizes[k][1], 1);
+        fflush(stderr);
+        if (err >= 0) { dup2(err, 2); close(err); }
+        CHECK(r == SCVHEOS_FAIL, "scvheosReadTable with nRho= %d nT= %d returned %d", sizes[k][0], sizes[k][1], r);
+        CHECK(t->dLogRhoAxis == NULL && t->dLogTAxis == NULL && t->dLogUArray == NULL, "nothing allocated for nRho= %d nT= %d", sizes[k][0], sizes[k][1]);
+        free(t);
+    }
+    {
+        FILE *fp = tmpfile();
+        char line[512];
+        double rho0 = -1.0;
+        CHECK(fp != NULL, "tmpfile");
+        if (fp != NULL) {
+            scvheosPrintMat(m, fp);
+            rewind(fp);
+            while (fgets(line, sizeof(line), fp) != NULL) {
+                const char *p = strstr(line, "rho0 (cgs units):");
+                if (p != NULL) rho0 = atof(p + strlen("rho0 (cgs units):"));
+            }
+            fclose(fp);
+        }
+        CHECK_REL(rho0, m->rho0 * m->dGmPerCcUnit, 1e-5, "scvheosPrintMat: rho0 (cgs units)");
+    }
+    END_TEST();
+}
+
 static void testFailureContract(SCVHEOSMAT *m)
 {
     int failsBefore = nFails;
@@ -960,6 +1003,7 @@ int main(int argc, char *argv[])
     testIsentrope(m);
     testExtrapLimit(m);
     testUCold(m);
+    testReadTableSizeAndPrint(m);
     testFailureContract(m);   /* last: triggers failure messages under EOSLIB_VERBOSE */
     testUnitPair(iMat);
     testEdgeCells(m);
