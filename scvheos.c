@@ -58,12 +58,15 @@ static double scvheosExp10(double x) {
  * the logarithms: this file passes log10 values in and exponentiates on the
  * way out.
  *
- * The inversions use the strict mode: a column is assumed to increase
- * monotonically, a target outside [f(T_min), f(T_max)] fails with
- * INTERP_BELOW/INTERP_ABOVE, a non-monotonic column with
- * INTERP_NONMONOTONIC (scvheosCheckMonotonic reports those at init). The
- * value tolerance absorbs a target that left the column by a 10^x <-> log10
- * round trip.
+ * The inversions use the strict mode: a target outside [f(T_min), f(T_max)]
+ * of the column (or [f(rho_min), f(rho_max)] of the row) fails with
+ * INTERP_BELOW/INTERP_ABOVE, any target inside gives a root. On a
+ * non-monotonic column or row (a table defect, reported once by
+ * scvheosCheckMonotonic at init) that is the root the bisection lands on, not
+ * necessarily the physical one, and a target attained only in a dip below the
+ * first or a rise above the last node fails like one outside. The value
+ * tolerance absorbs a target that left the column by a 10^x <-> log10 round
+ * trip.
  */
 static const INTERPINVERTOPT scvheosInvertOpt = { 0, SCVHEOS_EDGE_TOL, 0.0, 0.0 };   /* INTERP_INVERT_STRICT with this library's tolerance */
 
@@ -72,7 +75,6 @@ static const char *scvheosInvertStatus(int iret) {
     switch (iret) {
         case INTERP_BELOW:        return "below the table";
         case INTERP_ABOVE:        return "above the table";
-        case INTERP_NONMONOTONIC: return "in a non-monotonic column";
         default:                  return "not attained";
     }
 }
@@ -90,8 +92,10 @@ static int scvheosLocateLog(const SCVHEOSMAT *Mat, double logrho, double logT, I
  * u(T) and s(T) increasing along every rho column, P(rho) increasing along
  * every T row. Bilinear interpolation between two monotonic node columns is
  * monotonic, so checking the node columns covers every logrho. Reports the
- * number of defective columns/rows and the first few, so a later
- * "non-monotonic column" failure of an inversion can be traced to the table.
+ * number of defective columns/rows and the first few. The inversions do not
+ * detect them (that would cost O(n) per call): there they return a root that
+ * need not be the physical one, so a suspicious T(rho, u), T(rho, s) or
+ * rho(P, T) can be traced to the table with this report.
  */
 static void scvheosCheckMonotonic(SCVHEOSMAT *Mat) {
     const int nT = Mat->nT, nRho = Mat->nRho, nReport = 5;
@@ -109,7 +113,7 @@ static void scvheosCheckMonotonic(SCVHEOSMAT *Mat) {
     }
     if (nBadU || nBadS || nBadP) {
         fprintf(stderr, "scvheosInitMaterial: iMat= %i: non-monotonic columns: u(T) %i of %i, s(T) %i of %i, P(rho) %i of %i; "
-                "inversions fail (u, P) or clamp (s) where a target falls into such a column.\n",
+                "the inversions T(rho, u), T(rho, s) and rho(P, T) may return another root there.\n",
                 Mat->iMat, nBadU, nRho, nBadS, nRho, nBadP, nT);
     }
 }
@@ -790,12 +794,13 @@ double scvheosCsofRhoT(SCVHEOSMAT *Mat, double rho, double T) {
  * EOSLIB_VERBOSE) if logrho is not finite (rho <= 0) or outside the table.
  *
  * If logrho is in the table but logu cannot be inverted (not finite, i.e.
- * u <= 0; outside the column [u(T_min), u(T_max)]; or in a non-monotonic
- * column) the state falls back to T_min, the cold curve of the table: cell
- * iy = 0, v = 0, logT = LogTMin. This is the EOSlib contract for T(rho, u)
- * (same as ANEOSTofRhoU); the fallback is counted in nLookupFail and
- * reported under EOSLIB_VERBOSE, and the function returns 0, so P, cs and
- * the derivatives are then those of (rho, T_min).
+ * u <= 0, or outside the column [u(T_min), u(T_max)]) the state falls back
+ * to T_min, the cold curve of the table: cell iy = 0, v = 0, logT = LogTMin.
+ * This is the EOSlib contract for T(rho, u) (same as ANEOSTofRhoU); the
+ * fallback is counted in nLookupFail and reported under EOSLIB_VERBOSE, and
+ * the function returns 0, so P, cs and the derivatives are then those of
+ * (rho, T_min). On a non-monotonic column a logu inside [u(T_min), u(T_max)]
+ * gives a root, possibly not the physical one (see "Interpolation" above).
  */
 static int scvheosLocateLogRhoLogU(SCVHEOSMAT *Mat, const char *chFunc, double logrho, double logu,
                                    INTERPCELL *cell, double *plogT) {
@@ -915,9 +920,10 @@ double scvheosSofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
  * u column at logrho.
  *
  * Never returns the sentinel (same contract as ANEOSTofRhoU): if logrho is
- * not finite or outside the table, or logu is not finite, outside the
- * column [u(T_min), u(T_max)] or in a non-monotonic column, returns
- * logT_min and counts the fallback (see scvheosLocateLogRhoLogU).
+ * not finite or outside the table, or logu is not finite or outside the
+ * column [u(T_min), u(T_max)], returns logT_min and counts the fallback (see
+ * scvheosLocateLogRhoLogU). On a non-monotonic column it returns a root, not
+ * necessarily the physical one.
  */
 double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
     INTERPCELL cell;
@@ -933,8 +939,9 @@ double scvheosLogTofLogRhoLogU(SCVHEOSMAT *Mat, double logrho, double logu) {
  *
  * logs below s(T_min) or above s(T_max) of the column returns logT_min or
  * logT_max respectively, counted in Mat->nLookupFail (ANEOSmaterial
- * convention). Returns SCVHEOS_FAIL_VALUE if the input is not finite,
- * logrho is outside the table, or the column is not monotonic at logs.
+ * convention). Returns SCVHEOS_FAIL_VALUE if the input is not finite or
+ * logrho is outside the table. On a non-monotonic s column a logs inside
+ * [s(T_min), s(T_max)] gives a root, not necessarily the physical one.
  */
 double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
     INTERPCELL cell;
@@ -973,8 +980,9 @@ double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
         return Mat->LogTMax;
     }
 
+    /* Every other status (INTERP_INVALID) needs a NaN input, rejected above. */
     if (iret != INTERP_SUCCESS) {
-        SCVHEOS_FAIL_RETURN(Mat, "scvheosLogTofLogRhoLogS: s column not monotonic at logs= %g logrho= %g.\n", logs, logrho);
+        SCVHEOS_FAIL_RETURN(Mat, "scvheosLogTofLogRhoLogS: inversion failed (status %d) at logs= %g logrho= %g.\n", iret, logs, logrho);
     }
 
     return logT;
@@ -985,8 +993,9 @@ double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
  * at logT (interpInvertX, strict mode).
  *
  * Returns SCVHEOS_FAIL_VALUE (counted in nLookupFail) if the input is not
- * finite, logT is outside the table, logP is outside the row
- * [P(rho_min), P(rho_max)], or P(rho) is not monotonic at logP.
+ * finite, logT is outside the table, or logP is outside the row
+ * [P(rho_min), P(rho_max)]. Where P(rho) is not monotonic the inversion
+ * returns a root, not necessarily the physical one.
  */
 double scvheosLogRhoofLogPLogT(SCVHEOSMAT *Mat, double logP, double logT) {
     INTERPCELL cell;
@@ -1007,7 +1016,7 @@ double scvheosLogRhoofLogPLogT(SCVHEOSMAT *Mat, double logP, double logT) {
         interpLocateAxisTol(Mat->dLogTAxis, Mat->nT, logT, SCVHEOS_EDGE_TOL, SCVHEOS_EDGE_TOL_ABS, &iy, &v);
         SCVHEOS_FAIL_RETURN(Mat, "scvheosLogRhoofLogPLogT: logP= %g %s at logT= %g "
                 "(row P(rho_min)= %g P(rho_max)= %g, logrho in [%g, %g]).\n", logP,
-                (iret == INTERP_NONMONOTONIC) ? "in a non-monotonic row" : scvheosInvertStatus(iret), logT,
+                scvheosInvertStatus(iret), logT,
                 interpLineValue(&Mat->grid, Mat->dLogPArray, INTERP_ALONG_X, iy, v, 0),
                 interpLineValue(&Mat->grid, Mat->dLogPArray, INTERP_ALONG_X, iy, v, Mat->nRho - 1),
                 Mat->LogRhoMin, Mat->LogRhoMax);
@@ -1253,7 +1262,7 @@ double scvheosdPdRhoofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
     scvheosCellPartials(Mat, &cell, &dlPdlr, &dlPdlT, &dludlr, &dludlT);
 
     if (!(dludlT > 0.0)) {
-        /* Counted once per call: not again after a T fallback into a non-monotonic column. */
+        /* Counted once per call: not again after a T fallback (the cell at T_min can have dlogu/dlogT <= 0). */
         Mat->nLookupFail = nLookupFail0;
         SCVHEOS_FAIL_RETURN(Mat, "scvheosdPdRhoofRhoU: dlogu/dlogT= %g <= 0 at rho= %g u= %g (cell jRho= %i iT= %i).\n",
                 dludlT, rho, u, cell.ix, cell.iy);
@@ -1282,7 +1291,7 @@ double scvheosdPdUofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
     scvheosCellPartials(Mat, &cell, &dlPdlr, &dlPdlT, &dludlr, &dludlT);
 
     if (!(dludlT > 0.0)) {
-        /* Counted once per call: not again after a T fallback into a non-monotonic column. */
+        /* Counted once per call: not again after a T fallback (the cell at T_min can have dlogu/dlogT <= 0). */
         Mat->nLookupFail = nLookupFail0;
         SCVHEOS_FAIL_RETURN(Mat, "scvheosdPdUofRhoU: dlogu/dlogT= %g <= 0 at rho= %g u= %g (cell jRho= %i iT= %i).\n",
                 dludlT, rho, u, cell.ix, cell.iy);

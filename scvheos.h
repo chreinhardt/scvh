@@ -59,6 +59,10 @@
  *          scvheosReadTable rejects nRho < 2 or nT < 2 (no cell), like reos3ReadTable.
  *          scvheosPrintMat prints rho0 in cgs with the unit, like the table boundaries and
  *          reos3PrintMat (it printed the code-unit value unlabelled).
+ *          Documentation of the inversions corrected: a non-monotonic column or row does not
+ *          fail (the strict inversion of interpBilinear cannot detect it), it gives a root that
+ *          need not be the physical one; only a target outside the end nodes falls back, clamps
+ *          or fails. No change in behaviour.
  */
 #define SCVHEOS_VERSION_TEXT      "1.3.0"
 #define SCVHEOS_VERSION_MAJOR     1
@@ -112,19 +116,22 @@
  *
  * A failed lookup never exits. The EOS functions return SCVHEOS_FAIL_VALUE
  * when the state is not positive and finite or outside the table, when an
- * inversion has no solution (rho(P, T), a non-monotonic column) or when a
+ * inversion has no solution (rho(P, T) outside the row) or when a
  * derivative is undefined; it is returned both by the log-space functions
  * (in log space) and by the linear-space wrappers (rho, u, T, P, s, cs), and
  * scvheosPCTofRhoU sets *c to it as well. Two inversions fall back to a
  * table edge instead:
  *  - T(rho, u) never returns the sentinel (same contract as ANEOSTofRhoU):
  *    rho outside the table, or u below the cold curve u(rho, T_min), above
- *    u(rho, T_max), not positive, or in a non-monotonic column gives T_min,
- *    the lowest tabulated temperature (scvheosPCTofRhoU sets *T to it too);
- *    at a valid rho all (rho, u) functions then evaluate at (rho, T_min);
+ *    u(rho, T_max) or not positive gives T_min, the lowest tabulated
+ *    temperature (scvheosPCTofRhoU sets *T to it too); at a valid rho all
+ *    (rho, u) functions then evaluate at (rho, T_min);
  *  - T(rho, s) at a valid rho: s below s(rho, T_min) gives T_min, above
  *    s(rho, T_max) gives T_max (the ANEOSisentropicU convention for the
  *    isentrope).
+ * On a non-monotonic column or row (a table defect, reported at
+ * initialisation) the inversions T(rho, u), T(rho, s) and rho(P, T) return a
+ * root, not necessarily the physical one; they cannot detect it.
  *
  * Every failure and every fallback is counted in Mat->nLookupFail, once per
  * call (a call that fails or falls back counts 1, however many of its steps

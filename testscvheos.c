@@ -814,7 +814,9 @@ static void testUnitPair(int iMat)
  *   - P, u, cs (and s) are 10^(bilinear value of the log table in the cell);
  *   - P, cs, T of the fused lookup equal the separate (rho, u) calls bit for bit;
  *   - T(rho, u) is a root of u(rho, T) = u, and T itself where the u column is monotonic (tolerance
- *     from the cell's dlogu/dlogT); on a non-monotonic column a counted T_min fallback is allowed;
+ *     from the cell's dlogu/dlogT); on a non-monotonic column T(rho, u) may be another root, or a
+ *     counted T_min fallback where u lies outside [u(T_min), u(T_max)] of the column (a dip of
+ *     u(T) below the cold row);
  *   - rho(P, T) reproduces P where the P row is monotonic;
  *   - no other in-table lookup counts a failure.
  */
@@ -948,9 +950,10 @@ static void testLogBoundAtZero(int iMat, double dKpcUnit, double dMsolUnit)
                 /*
                  * T(rho, u) on the edge column. On a monotonic column it is a root of u(rho, T) = u and
                  * involves no fallback. The real SCvH table has columns at the rho edges where u(T) is
-                 * not monotonic: there the strict inversion may find another root than T (still a root)
-                 * or report the column and fall back to T_min (counted); both are the documented
-                 * behaviour for a table defect, not an edge rejection.
+                 * not monotonic: there the strict inversion may find another root than T (still a root),
+                 * or u lies outside [u(T_min), u(T_max)] of the column (a dip below the cold row) and T
+                 * falls back to T_min (counted); both are the documented behaviour for a table defect,
+                 * not an edge rejection.
                  */
                 const int ixEdge = end ? m->nRho - 1 : 0;
                 const int bMonotonic = (interpNodeLineMonotonic(&m->grid, m->dLogUArray, INTERP_ALONG_Y, ixEdge) == 0);
