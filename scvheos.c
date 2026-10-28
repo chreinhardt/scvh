@@ -304,7 +304,8 @@ SCVHEOSMAT *scvheosInitMaterial(int iMat, double dKpcUnit, double dMsolUnit) {
         double logrho0 = log10(Mat->rho0);
         if (!(logrho0 > Mat->LogRhoMin) || !(logrho0 < Mat->LogRhoMax)) {
             logrho0 = 0.5*(Mat->LogRhoMin + Mat->LogRhoMax);
-            fprintf(stderr, "scvheosInitMaterial: iMat= %i: reference density %g g/cc outside the "
+            /* A note, not an error (rho0 is a convention): only with -DEOSLIB_VERBOSE, like every init message. */
+            SCVHEOS_WARN("scvheosInitMaterial: iMat= %i: reference density %g g/cc outside the "
                     "table [%g, %g] g/cc, using %g g/cc instead.\n", iMat, Mat->rho0,
                     scvheosExp10(Mat->LogRhoMin), scvheosExp10(Mat->LogRhoMax),
                     scvheosExp10(logrho0));

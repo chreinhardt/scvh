@@ -73,6 +73,9 @@
  *          scvheosCheckTableBoundsLogRhoLogT and scvheosCheckBoundsLogRhoLogT use the edge
  *          tolerance of the lookups (they are TRUE exactly where scvheosLocateLog succeeds); they
  *          compared without a tolerance and rejected states on the edge that every lookup accepts.
+ *          The note that SCVHEOS_RHO0_CGS lies outside the table (rho0 moved to the centre of the rho
+ *          axis) is SCVHEOS_WARN as well; it was the last unconditional fprintf of the init that is
+ *          not followed by a fatal exit.
  */
 #define SCVHEOS_VERSION_TEXT      "1.3.0"
 #define SCVHEOS_VERSION_MAJOR     1
