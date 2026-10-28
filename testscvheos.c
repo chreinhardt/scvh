@@ -763,6 +763,99 @@ static void testUnitPair(int iMat)
 /* ------------------------------------------------------------------- main */
 
 /*
+ * The border strips of the table: the first and last density cell over all temperature cells, and
+ * the first and last temperature cell over all density cells. The interior tests sample 5..95% of
+ * the log axes and never reach them (an error confined to an edge cell, like the last-cell bug of
+ * ANEOSRhoofPU up to ANEOSmaterial 1.2.0, would go unnoticed). Per point at off-grid fractions of
+ * the cell, in log space:
+ *   - P, u, cs (and s) are 10^(bilinear value of the log table in the cell);
+ *   - P, cs, T of the fused lookup equal the separate (rho, u) calls bit for bit;
+ *   - T(rho, u) is a root of u(rho, T) = u, and T itself where the u column is monotonic (tolerance
+ *     from the cell's dlogu/dlogT); on a non-monotonic column a counted T_min fallback is allowed;
+ *   - rho(P, T) reproduces P where the P row is monotonic;
+ *   - no other in-table lookup counts a failure.
+ */
+static void testEdgeCells(SCVHEOSMAT *m)
+{
+    int failsBefore = nFails;
+    TEST("edge cells: first and last rho and T cells");
+    static const double frac[3] = { 0.31, 0.53, 0.77 };
+    const double eps = DBL_EPSILON, ln10 = 2.302585092994045684;
+    long nPoints = 0, nNonMono = 0, nFallback = 0, nOtherRoot = 0;
+
+    for (int strip = 0; strip < 4; strip++) {
+        const int nAlong = (strip < 2) ? m->nT - 1 : m->nRho - 1;
+        const int stride = nAlong / 300 + 1;
+        for (int k = 0; k < nAlong; k += stride) {
+            const int j = (strip == 0) ? 0 : (strip == 1) ? m->nRho - 2 : k;   /* rho cell */
+            const int i = (strip == 2) ? 0 : (strip == 3) ? m->nT - 2 : k;     /* T cell */
+            const int bUMono = monotonicInColumn(m, m->dLogUArray, j);
+            for (int fx = 0; fx < 3; fx++) for (int fy = 0; fy < 3; fy++) {
+                const double lr = m->dLogRhoAxis[j] + frac[fx] * (m->dLogRhoAxis[j+1] - m->dLogRhoAxis[j]);
+                const double lt = m->dLogTAxis[i] + frac[fy] * (m->dLogTAxis[i+1] - m->dLogTAxis[i]);
+                const double rho = tenpow(lr), T = tenpow(lt);
+                /* The roundoff of a value through 10^x and log10: |log10 f| ln10 eps per operation. */
+                const double lscale = fabs(lr) + fabs(lt) + 1.0;
+                long nf = m->nLookupFail;
+                nPoints++;
+
+                double P = scvheosPofRhoT(m, rho, T), u = scvheosUofRhoT(m, rho, T), cs = scvheosCsofRhoT(m, rho, T);
+                const double lP = bilinear(m, m->dLogPArray, lr, lt), lu = bilinear(m, m->dLogUArray, lr, lt), lc = bilinear(m, m->dLogCArray, lr, lt);
+                CHECK(!isSentinel(P) && fabs(P / tenpow(lP) - 1.0) <= 64 * eps * ln10 * (lscale + fabs(lP)), "P in edge cell (%d,%d): %.17g vs %.17g", j, i, P, tenpow(lP));
+                CHECK(!isSentinel(u) && fabs(u / tenpow(lu) - 1.0) <= 64 * eps * ln10 * (lscale + fabs(lu)), "u in edge cell (%d,%d): %.17g vs %.17g", j, i, u, tenpow(lu));
+                CHECK(!isSentinel(cs) && fabs(cs / tenpow(lc) - 1.0) <= 64 * eps * ln10 * (lscale + fabs(lc)), "cs in edge cell (%d,%d)", j, i);
+                {
+                    double S = scvheosSofRhoT(m, rho, T); const double ls = bilinear(m, m->dLogSArray, lr, lt);
+                    CHECK(!isSentinel(S) && fabs(S / tenpow(ls) - 1.0) <= 64 * eps * ln10 * (lscale + fabs(ls)), "s in edge cell (%d,%d)", j, i);
+                }
+                CHECK(m->nLookupFail == nf, "forward lookups in edge cell (%d,%d) counted", j, i);
+
+                /* The fused lookup and the separate calls. */
+                nf = m->nLookupFail;
+                double cf, Tf, Pf = scvheosPCTofRhoU(m, rho, u, &cf, &Tf);
+                const long nfscvheosPCTofRhoU = m->nLookupFail - nf;
+                CHECK(Pf == scvheosPofRhoU(m, rho, u) && cf == scvheosCsofRhoU(m, rho, u) && Tf == scvheosTofRhoU(m, rho, u),
+                      "scvheosPCTofRhoU vs separate calls in edge cell (%d,%d): P %.17g/%.17g T %.17g/%.17g", j, i, Pf, scvheosPofRhoU(m, rho, u), Tf, scvheosTofRhoU(m, rho, u));
+
+                /* T(rho, u): a root, T itself on a monotonic column, else possibly a counted fallback. */
+                if (nfscvheosPCTofRhoU == 0) {
+                    const double u2 = scvheosUofRhoT(m, rho, Tf);
+                    CHECK(fabs(u2 / u - 1.0) <= 256 * eps * ln10 * (lscale + fabs(lu)), "u(rho, T(rho, u)) in edge cell (%d,%d): T = %g, T(rho, u) = %g", j, i, T, Tf);
+                    if (bUMono) {
+                        /* dlogT = dlogu / (dlogu/dlogT of the cell). */
+                        const double w = frac[fx];
+                        const double slope = fabs(((1.0 - w) * (m->dLogUArray[(size_t)j * m->nT + i + 1] - m->dLogUArray[(size_t)j * m->nT + i])
+                                                   + w * (m->dLogUArray[(size_t)(j+1) * m->nT + i + 1] - m->dLogUArray[(size_t)(j+1) * m->nT + i]))
+                                                  / (m->dLogTAxis[i+1] - m->dLogTAxis[i]));
+                        CHECK(fabs(Tf / T - 1.0) <= 256 * eps * ln10 * (lscale + fabs(lu)) * (1.0 + 1.0 / slope), "T(rho, u) in edge cell (%d,%d): %.17g vs %.17g", j, i, Tf, T);
+                    } else if (fabs(Tf / T - 1.0) > 1e-6) {
+                        nOtherRoot++;
+                    }
+                } else {
+                    CHECK(!bUMono, "T(rho, u) fell back on a monotonic column in edge cell (%d,%d)", j, i);
+                    CHECK(nfscvheosPCTofRhoU == 1, "fallback counted %ld times in edge cell (%d,%d)", nfscvheosPCTofRhoU, j, i);
+                    nFallback++;
+                }
+                if (!bUMono) nNonMono++;
+
+                /* rho(P, T) on a monotonic row. */
+                if (pressureMonotonicInRow(m, i)) {
+                    nf = m->nLookupFail;
+                    double rP = scvheosRhoofPT(m, P, T);
+                    CHECK(!isSentinel(rP) && m->nLookupFail == nf, "rho(P,T) failed in edge cell (%d,%d)", j, i);
+                    if (!isSentinel(rP)) CHECK(fabs(scvheosPofRhoT(m, rP, T) / P - 1.0) <= 1e-10, "P(rho(P,T),T) in edge cell (%d,%d)", j, i);
+                }
+                m->nLookupFail = nf;
+            }
+        }
+    }
+    if (nNonMono)
+        NOTE("%ld of %ld edge-cell states on a non-monotonic u column (table defect): %ld T_min fallbacks, %ld other roots",
+             nNonMono, nPoints, nFallback, nOtherRoot);
+    END_TEST();
+}
+
+/*
  * Edge tolerance at a log bound near 0. The code-unit shift of log rho is arbitrary, so a unit pair can
  * put the end of the log rho axis at (or within roundoff of) 0, where a tolerance relative to the
  * bound alone is zero. A state on the table edge, converted from cgs to code units as a hydro code
@@ -869,6 +962,7 @@ int main(int argc, char *argv[])
     testUCold(m);
     testFailureContract(m);   /* last: triggers failure messages under EOSLIB_VERBOSE */
     testUnitPair(iMat);
+    testEdgeCells(m);
     testLogBoundAtZero(iMat, dKpcUnit, dMsolUnit);
 
     scvheosFinalizeMaterial(m);
