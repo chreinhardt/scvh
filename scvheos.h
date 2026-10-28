@@ -174,7 +174,9 @@ static inline int scvheosFailed(double x) {
  *  - EOSSolveBC: the lower bracket for rho2 starts at 0.999*rho0 and is
  *    shrunk by 0.9 at most EOS_SOLVEBC_MAX_EXPAND times, so interface
  *    densities down to ~3e-8 g/cc are reachable from this value,
- *  - EOSWoolfsonCoeff (obsolete): the 0.8*rho0 cutoff.
+ *  - EOSWoolfsonCoeff (obsolete): the cutoff below which no interface
+ *    correction is done, 0.8*rho0 = 8e-4 g/cc. EOSlib applies it to the
+ *    gases too; rho0forInterfaceCorrection (0 for SCvH) is not read.
  * scvheosInitMaterial moves it to the geometric centre of the rho axis if
  * it lies outside the table, since EOSSolveBC evaluates the EOS there.
  */
