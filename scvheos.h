@@ -70,6 +70,9 @@
  *          No output at initialisation unless compiled with -DEOSLIB_VERBOSE (SCVHEOS_WARN): the
  *          monotonicity report and the sound speed repairs were printed on stderr unconditionally,
  *          with one instance per thread 64 times. Errors before a fatal exit are still printed.
+ *          scvheosCheckTableBoundsLogRhoLogT and scvheosCheckBoundsLogRhoLogT use the edge
+ *          tolerance of the lookups (they are TRUE exactly where scvheosLocateLog succeeds); they
+ *          compared without a tolerance and rejected states on the edge that every lookup accepts.
  */
 #define SCVHEOS_VERSION_TEXT      "1.3.0"
 #define SCVHEOS_VERSION_MAJOR     1
@@ -321,6 +324,11 @@ double scvheosUCold(SCVHEOSMAT *Mat, double rho);
 
 int scvheosPrintMat(SCVHEOSMAT *Mat, FILE *fp);
 
+/*
+ * TRUE if (logrho, logT) is inside the table, exactly where the (logrho, logT) lookups find it (the
+ * same edge tolerance SCVHEOS_EDGE_TOL), FALSE otherwise or for NaN; not counted. The lookup limits
+ * LogRhoMin..LogTMax are the table bounds, so both functions are the same test.
+ */
 int scvheosCheckTableBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 int scvheosCheckBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 int scvheosIsInExtrapLimit(SCVHEOSMAT *Mat, double rho, double u);

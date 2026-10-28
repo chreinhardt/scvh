@@ -1376,26 +1376,26 @@ int scvheosPrintMat(SCVHEOSMAT *Mat, FILE *fp) {
 }
 
 /*
- * Check if (logrho, logT) is inside of the eos table.
+ * Check if (logrho, logT) is inside of the eos table: TRUE exactly when the (logrho, logT) lookups
+ * (scvheosLogPofLogRhoLogT and the others, scvheosLocateLog) find the state, i.e. on the closed
+ * table intervals with the same edge tolerance SCVHEOS_EDGE_TOL*|bound| + SCVHEOS_EDGE_TOL_ABS.
+ * FALSE for NaN. Not counted in nLookupFail (a status query).
+ *
+ * Up to 1.3.0 the bounds were compared without a tolerance, so a state on the edge after the
+ * code <-> cgs round trip (1e-16 outside) was reported outside although every lookup evaluates it.
  */
 int scvheosCheckTableBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    if ((logrho >= Mat->dLogRhoAxis[0]) && (logrho <= Mat->dLogRhoAxis[Mat->nRho-1]) && (logT >= Mat->dLogTAxis[0]) &&
-        (logT <= Mat->dLogTAxis[Mat->nT-1])) {
-        return TRUE;
-    }
-
-    return FALSE;
+    INTERPCELL cell;
+    return (scvheosLocateLog(Mat, logrho, logT, &cell) == INTERP_SUCCESS) ? TRUE : FALSE;
 }
 
 /*
- * Check if LogRhoMin <= logrho <= LogRhoMax and LogTMin <= logT <= LogTMax.
+ * Check if LogRhoMin <= logrho <= LogRhoMax and LogTMin <= logT <= LogTMax. The lookup limits are
+ * the table bounds (no extrapolation), so this is the same test as
+ * scvheosCheckTableBoundsLogRhoLogT, with the same edge tolerance.
  */
 int scvheosCheckBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
-    if ((logrho < Mat->LogRhoMin) || (logrho > Mat->LogRhoMax) || (logT < Mat->LogTMin) || (logT > Mat->LogTMax)) {
-        return FALSE;
-    }
-
-    return TRUE;
+    return scvheosCheckTableBoundsLogRhoLogT(Mat, logrho, logT);
 }
 
 /*

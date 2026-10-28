@@ -641,6 +641,56 @@ static void testExtrapLimit(SCVHEOSMAT *m)
 }
 
 /* The cold curve accessor EOSlib uses: u(rho, T_min) on the first T row, the sentinel (counted) outside. */
+/*
+ * The bounds checks agree exactly with the (logrho, logT) lookups, including the edge tolerance:
+ * on the edges and inside the band SCVHEOS_EDGE_TOL*|b| + SCVHEOS_EDGE_TOL_ABS they are TRUE and the
+ * lookups succeed, beyond it both reject (up to 1.3.0 the checks had no tolerance and reported a
+ * state on the edge after the code <-> cgs round trip as outside). Not counted.
+ */
+static void testBoundsChecks(SCVHEOSMAT *m)
+{
+    int failsBefore = nFails;
+    TEST("scvheosCheck(Table)BoundsLogRhoLogT");
+    const double lr[2] = { m->dLogRhoAxis[0], m->dLogRhoAxis[m->nRho-1] };
+    const double lt[2] = { m->dLogTAxis[0], m->dLogTAxis[m->nT-1] };
+    const double lrMid = 0.5 * (lr[0] + lr[1]), ltMid = 0.5 * (lt[0] + lt[1]);
+    long nf0 = m->nLookupFail;
+    int nIn = 0, nOut = 0;
+    /* Offsets in units of the tolerance band of the bound: inside the band, on its edge, beyond it. */
+    static const double f[7] = { -1e3, -2.0, -0.5, 0.0, 0.5, 2.0, 1e3 };
+    for (int e = 0; e < 2; e++) for (int k = 0; k < 7; k++) for (int axis = 0; axis < 2; axis++) {
+        const double b = axis ? lt[e] : lr[e];
+        const double band = SCVHEOS_EDGE_TOL * fabs(b) + SCVHEOS_EDGE_TOL_ABS;
+        const double out = e ? +1.0 : -1.0;              /* direction out of the table */
+        const double x = b + out * f[k] * band;
+        const double logrho = axis ? lrMid : x, logT = axis ? x : ltMid;
+        int st = scvheosCheckTableBoundsLogRhoLogT(m, logrho, logT);
+        CHECK(st == scvheosCheckBoundsLogRhoLogT(m, logrho, logT), "the two checks differ at logrho=%.17g logT=%.17g", logrho, logT);
+        long nf = m->nLookupFail;
+        double lP = scvheosLogPofLogRhoLogT(m, logrho, logT);
+        int bLookup = !isSentinel(lP);
+        m->nLookupFail = nf;
+        CHECK((st == TRUE) == bLookup, "check %d but the lookup %s at logrho=%.17g logT=%.17g (offset %g band)",
+              st, bLookup ? "succeeds" : "fails", logrho, logT, f[k]);
+        /* Inside the table, on the bound and within the band: inside. Clearly beyond it: outside. */
+        if (f[k] <= 0.5) CHECK(st == TRUE, "rejected at offset %g band (logrho=%.17g logT=%.17g)", f[k], logrho, logT);
+        if (f[k] >= 2.0) CHECK(st == FALSE, "accepted at offset %g band (logrho=%.17g logT=%.17g)", f[k], logrho, logT);
+        if (st == TRUE) nIn++; else nOut++;
+    }
+    /* The edges after the linear <-> log round trip, as the (rho, T) functions see them. */
+    for (int e = 0; e < 2; e++) {
+        CHECK(scvheosCheckTableBoundsLogRhoLogT(m, log10(tenpow(lr[e])), ltMid) == TRUE, "rho edge %d after the round trip", e);
+        CHECK(scvheosCheckTableBoundsLogRhoLogT(m, lrMid, log10(tenpow(lt[e]))) == TRUE, "T edge %d after the round trip", e);
+    }
+    CHECK(scvheosCheckTableBoundsLogRhoLogT(m, NAN, ltMid) == FALSE, "NaN logrho");
+    CHECK(scvheosCheckTableBoundsLogRhoLogT(m, lrMid, NAN) == FALSE, "NaN logT");
+    CHECK(scvheosCheckBoundsLogRhoLogT(m, -INFINITY, ltMid) == FALSE, "logrho = -inf (rho = 0)");
+    CHECK(m->nLookupFail == nf0, "bounds checks counted %ld times", m->nLookupFail - nf0);
+    CHECK(nIn > 0 && nOut > 0, "bounds checks not exercised (%d in, %d out)", nIn, nOut);
+    m->nLookupFail = nf0;
+    END_TEST();
+}
+
 static void testUCold(SCVHEOSMAT *m)
 {
     int failsBefore = nFails;
@@ -1044,6 +1094,7 @@ int main(int argc, char *argv[])
     testIsentrope(m);
     testExtrapLimit(m);
     testUCold(m);
+    testBoundsChecks(m);
     testReadTableSizeAndPrint(m);
     testFailureContract(m);   /* last: triggers failure messages under EOSLIB_VERBOSE */
     testUnitPair(iMat);
