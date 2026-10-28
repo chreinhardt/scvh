@@ -57,8 +57,9 @@
  *          SCVHEOS_EDGE_TOL_ABS (a log bound at 0 had none); uses the *Tol
  *          functions of interpBilinear (to be required when its version is bumped).
  *          scvheosReadTable rejects nRho < 2 or nT < 2 (no cell), like reos3ReadTable.
- *          scvheosPrintMat prints rho0 in cgs with the unit, like the table boundaries and
- *          reos3PrintMat (it printed the code-unit value unlabelled).
+ *          scvheosPrintMat prints rho0 in cgs (it printed the code-unit value unlabelled) and,
+ *          like every *PrintMat, with the unit: rho0 in g/cc, the table boundaries as linear
+ *          values in g/cc and K (they were log10 values without a unit), and the unit pair.
  *          Documentation of the inversions corrected: a non-monotonic column or row does not
  *          fail (the strict inversion of interpBilinear cannot detect it), it gives a root that
  *          need not be the physical one; only a target outside the end nodes falls back, clamps

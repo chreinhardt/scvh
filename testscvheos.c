@@ -719,7 +719,8 @@ static void testUCold(SCVHEOSMAT *m)
  * scvheosReadTable needs two nodes on each axis (one cell): nRho or nT below 2 is rejected before
  * the file is read, like reos3ReadTable (up to scvheos 1.3.0 it was accepted, and the grid of a
  * single node has no cell). scvheosPrintMat prints rho0 in cgs with the unit (it printed the
- * code-unit value unlabelled).
+ * code-unit value unlabelled) and the table boundaries as linear values in g/cc and K (log10
+ * values without a unit).
  */
 static void testReadTableSizeAndPrint(SCVHEOSMAT *m)
 {
@@ -742,18 +743,33 @@ static void testReadTableSizeAndPrint(SCVHEOSMAT *m)
     {
         FILE *fp = tmpfile();
         char line[512];
-        double rho0 = -1.0;
+        double rho0 = -1.0, rhoMin = -1.0;
+        int bRho0Unit = 0, bBoundsUnit = 0;
         CHECK(fp != NULL, "tmpfile");
         if (fp != NULL) {
             scvheosPrintMat(m, fp);
             rewind(fp);
             while (fgets(line, sizeof(line), fp) != NULL) {
                 const char *p = strstr(line, "rho0 (cgs units):");
-                if (p != NULL) rho0 = atof(p + strlen("rho0 (cgs units):"));
+                if (p != NULL) {
+                    char *end;
+                    rho0 = strtod(p + strlen("rho0 (cgs units):"), &end);
+                    bRho0Unit = (strncmp(end, " g/cc", 5) == 0);
+                }
+                p = strstr(line, "minRho = ");
+                if (p != NULL) {
+                    char *end;
+                    rhoMin = strtod(p + strlen("minRho = "), &end);
+                    bBoundsUnit = (strncmp(end, " g/cc", 5) == 0) && strstr(line, " K") != NULL;
+                }
             }
             fclose(fp);
         }
         CHECK_REL(rho0, m->rho0 * m->dGmPerCcUnit, 1e-5, "scvheosPrintMat: rho0 (cgs units)");
+        CHECK(bRho0Unit, "scvheosPrintMat: rho0 without \" g/cc\"");
+        /* The table boundaries as linear values with the unit, like reos3PrintMat and ANEOSPrintMat (they were log10 values without one). */
+        CHECK_REL(rhoMin, pow(10.0, m->dLogRhoAxis[0]) * m->dGmPerCcUnit, 1e-5, "scvheosPrintMat: minRho (cgs units)");
+        CHECK(bBoundsUnit, "scvheosPrintMat: table boundaries without g/cc and K");
     }
     END_TEST();
 }

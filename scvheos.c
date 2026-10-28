@@ -1366,11 +1366,13 @@ double scvheosUCold(SCVHEOSMAT *Mat, double rho) {
 int scvheosPrintMat(SCVHEOSMAT *Mat, FILE *fp) {
     if (!fp) return SCVHEOS_FAIL;
 	fprintf(fp,"# Material: %i (%s)\n", Mat->iMat, Mat->MatString);
-	fprintf(fp,"# Reference density rho0 (cgs units): %g\n", Mat->rho0*Mat->dGmPerCcUnit);
-	fprintf(fp,"# Table size: nRho = %d, nT = %d\n", Mat->nRho, Mat->nT);
-    fprintf(fp,"# Table boundaries (cgs units):\n");
-    fprintf(fp,"# LogRhoMin=%15.7E LogRhoMax=%15.7E\n", Mat->dLogRhoAxis[0]+log10(Mat->dGmPerCcUnit), Mat->dLogRhoAxis[Mat->nRho-1]+log10(Mat->dGmPerCcUnit));
-    fprintf(fp,"# LogTMin=%15.7E LogTMax=%15.7E\n", Mat->dLogTAxis[0], Mat->dLogTAxis[Mat->nT-1]);
+    fprintf(fp,"# dKpcUnit: %g dMsolUnit: %g\n", Mat->dKpcUnit, Mat->dMsolUnit);
+    fprintf(fp,"# Reference density rho0 (cgs units): %g g/cc\n", Mat->rho0*Mat->dGmPerCcUnit);
+    fprintf(fp,"# Table size: nRho = %d, nT = %d\n", Mat->nRho, Mat->nT);
+    /* The same form as reos3PrintMat and ANEOSPrintMat: linear values with the unit (it printed log10 values without one). */
+    fprintf(fp,"# Table boundaries (cgs units): minRho = %g g/cc, maxRho = %g g/cc, minT = %g K, maxT = %g K\n",
+            scvheosExp10(Mat->dLogRhoAxis[0])*Mat->dGmPerCcUnit, scvheosExp10(Mat->dLogRhoAxis[Mat->nRho-1])*Mat->dGmPerCcUnit,
+            scvheosExp10(Mat->dLogTAxis[0]), scvheosExp10(Mat->dLogTAxis[Mat->nT-1]));
     fprintf(fp,"# Failed lookups and fallbacks (nLookupFail): %ld\n", Mat->nLookupFail);
 
     return SCVHEOS_SUCCESS;
