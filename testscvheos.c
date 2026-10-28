@@ -47,6 +47,7 @@
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
+#include <fcntl.h>   /* open in scvheosInitQuiet */
 #include <sys/wait.h>
 #include "scvheos.h"
 
@@ -761,6 +762,86 @@ static void testUnitPair(int iMat)
 
 /* ------------------------------------------------------------------- main */
 
+/*
+ * Edge tolerance at a log bound near 0. The code-unit shift of log rho is arbitrary, so a unit pair can
+ * put the end of the log rho axis at (or within roundoff of) 0, where a tolerance relative to the
+ * bound alone is zero. A state on the table edge, converted from cgs to code units as a hydro code
+ * holds it, lands a few ulps off the bound (absolute ~1e-16 after log10) and failed up to scvheos
+ * 1.3.0 for about half the unit pairs (92 of 201 below). The band is SCVHEOS_EDGE_TOL*|bound| +
+ * SCVHEOS_EDGE_TOL_ABS. Both ends of the rho axis; a density clearly outside still fails.
+ */
+/* scvheosInitMaterial reports its table checks on stderr; quiet for the 402 materials below. */
+static SCVHEOSMAT *scvheosInitQuiet(int iMat, double dKpcUnit, double dMsolUnit)
+{
+    fflush(stdout); fflush(stderr);
+    int out = dup(1), err = dup(2), devnull = open("/dev/null", O_WRONLY);
+    if (devnull >= 0) { dup2(devnull, 1); dup2(devnull, 2); close(devnull); }
+    SCVHEOSMAT *m = scvheosInitMaterial(iMat, dKpcUnit, dMsolUnit);
+    fflush(stdout); fflush(stderr);
+    if (out >= 0) { dup2(out, 1); close(out); }
+    if (err >= 0) { dup2(err, 2); close(err); }
+    return m;
+}
+
+static void testLogBoundAtZero(int iMat, double dKpcUnit, double dMsolUnit)
+{
+    int failsBefore = nFails;
+    TEST("edge tolerance at a log rho bound of 0");
+    SCVHEOSMAT *m0 = scvheosInitQuiet(iMat, dKpcUnit, dMsolUnit);
+    const double g0 = m0->dGmPerCcUnit;
+    const double logRhoEdgeCGS[2] = { m0->dLogRhoAxis[0] + log10(g0), m0->dLogRhoAxis[m0->nRho-1] + log10(g0) };
+    const double T = pow(10.0, 0.5 * (m0->dLogTAxis[0] + m0->dLogTAxis[m0->nT-1]));
+    int nFailed[2] = {0, 0}, nTried = 0, nDefect = 0;
+    scvheosFinalizeMaterial(m0);
+
+    for (int end = 0; end < 2; end++) {
+        for (int k = -100; k <= 100; k++) {
+            /* dGmPerCcUnit is proportional to dMsolUnit: this puts the axis end at ~0 in code units. */
+            double M = dMsolUnit * pow(10.0, logRhoEdgeCGS[end]) / g0 * (1.0 + k * 1e-15);
+            SCVHEOSMAT *m = scvheosInitQuiet(iMat, dKpcUnit, M);
+            const double bound = end ? m->dLogRhoAxis[m->nRho-1] : m->dLogRhoAxis[0];
+            const double rho = pow(10.0, logRhoEdgeCGS[end]) / m->dGmPerCcUnit;   /* the edge, from cgs */
+            CHECK(fabs(bound) < 1e-12, "axis end %g not near 0 (k = %d)", bound, k);
+            /* The forward lookups at the edge decide whether the edge state is accepted. */
+            double P = scvheosPofRhoT(m, rho, T);
+            double s = scvheosSofRhoT(m, rho, T);
+            double u = scvheosUofRhoT(m, rho, T);
+            if (isSentinel(P) || isSentinel(s) || isSentinel(u)) {
+                nFailed[end]++;
+            } else {
+                /*
+                 * T(rho, u) on the edge column. On a monotonic column it is a root of u(rho, T) = u and
+                 * involves no fallback. The real SCvH table has columns at the rho edges where u(T) is
+                 * not monotonic: there the strict inversion may find another root than T (still a root)
+                 * or report the column and fall back to T_min (counted); both are the documented
+                 * behaviour for a table defect, not an edge rejection.
+                 */
+                const int ixEdge = end ? m->nRho - 1 : 0;
+                const int bMonotonic = (interpNodeLineMonotonic(&m->grid, m->dLogUArray, INTERP_ALONG_Y, ixEdge) == 0);
+                long nf = m->nLookupFail;
+                double Tu = scvheosTofRhoU(m, rho, u);
+                if (m->nLookupFail == nf) {
+                    CHECK_REL(scvheosUofRhoT(m, rho, Tu), u, 1e-9, "u(rho, T(rho, u)) at the edge (end %d, k = %d, T = %g, T(rho, u) = %g)", end, k, T, Tu);
+                    if (bMonotonic) CHECK_REL(Tu, T, 1e-9, "T(rho, u) on a monotonic edge column (end %d, k = %d)", end, k);
+                } else {
+                    CHECK(!bMonotonic, "T(rho, u) fell back on a monotonic edge column (end %d, k = %d)", end, k);
+                    nDefect++;
+                }
+            }
+            /* Clearly outside (1e-10 in log rho) still fails. */
+            double rhoOut = rho * (end ? 1.0 + 2.3e-10 : 1.0 - 2.3e-10);
+            CHECK(isSentinel(scvheosPofRhoT(m, rhoOut, T)), "P(rho, T) %s the table accepted (end %d, k = %d)",
+                  end ? "above" : "below", end, k);
+            nTried++;
+            scvheosFinalizeMaterial(m);
+        }
+    }
+    CHECK(nFailed[0] == 0 && nFailed[1] == 0, "edge state at a log bound of 0 rejected for %d (lower end) and %d (upper end) of %d unit pairs",
+          nFailed[0], nFailed[1], nTried / 2);
+    if (nDefect) NOTE("%d T(rho, u) at the edge fell back to T_min (non-monotonic u(T) edge column, table defect)", nDefect);
+    END_TEST();
+}
+
 int main(int argc, char *argv[])
 {
     int iMat = SCVHEOS_HHE_EXT;
@@ -788,6 +869,7 @@ int main(int argc, char *argv[])
     testUCold(m);
     testFailureContract(m);   /* last: triggers failure messages under EOSLIB_VERBOSE */
     testUnitPair(iMat);
+    testLogBoundAtZero(iMat, dKpcUnit, dMsolUnit);
 
     scvheosFinalizeMaterial(m);
 

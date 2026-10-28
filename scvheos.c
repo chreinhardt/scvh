@@ -82,7 +82,7 @@ static const char *scvheosInvertStatus(int iret) {
  * INTERP_SUCCESS and the cell, or the core's status code (the caller prints).
  */
 static int scvheosLocateLog(const SCVHEOSMAT *Mat, double logrho, double logT, INTERPCELL *cell) {
-    return interpLocate(&Mat->grid, logrho, logT, SCVHEOS_EDGE_TOL, cell);
+    return interpLocateTol(&Mat->grid, logrho, logT, SCVHEOS_EDGE_TOL, SCVHEOS_EDGE_TOL_ABS, cell);
 }
 
 /*
@@ -802,7 +802,7 @@ static int scvheosLocateLogRhoLogU(SCVHEOSMAT *Mat, const char *chFunc, double l
     }
 
     /* rho first: outside the table nothing can be evaluated. */
-    if (interpLocateAxis(Mat->dLogRhoAxis, Mat->nRho, logrho, SCVHEOS_EDGE_TOL, &cell->ix, &cell->u) != INTERP_SUCCESS) {
+    if (interpLocateAxisTol(Mat->dLogRhoAxis, Mat->nRho, logrho, SCVHEOS_EDGE_TOL, SCVHEOS_EDGE_TOL_ABS, &cell->ix, &cell->u) != INTERP_SUCCESS) {
         Mat->nLookupFail++;
         SCVHEOS_WARN("%s: logrho= %15.7E outside of the EOS table (logrho in [%g, %g]).\n", chFunc, logrho, Mat->LogRhoMin, Mat->LogRhoMax);
         return -1;
@@ -939,7 +939,7 @@ double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
         SCVHEOS_FAIL_RETURN(Mat, "scvheosLogTofLogRhoLogS: invalid input logrho= %g logs= %g.\n", logrho, logs);
     }
 
-    iret = interpInvertY(&Mat->grid, Mat->dLogSArray, logrho, logs, SCVHEOS_EDGE_TOL, &scvheosInvertOpt, &cell, &logT);
+    iret = interpInvertYTol(&Mat->grid, Mat->dLogSArray, logrho, logs, SCVHEOS_EDGE_TOL, SCVHEOS_EDGE_TOL_ABS, &scvheosInvertOpt, &cell, &logT);
 
     if (iret == INTERP_OUTSIDE_XMIN || iret == INTERP_OUTSIDE_XMAX) {
         SCVHEOS_FAIL_RETURN(Mat, "scvheosLogTofLogRhoLogS: logrho= %15.7E outside of the EOS table.\n", logrho);
@@ -953,7 +953,7 @@ double scvheosLogTofLogRhoLogS(SCVHEOSMAT *Mat, double logrho, double logs) {
      */
     if (iret == INTERP_BELOW || iret == INTERP_ABOVE) {
         int ix = 0; double w = 0.0;
-        interpLocateAxis(Mat->dLogRhoAxis, Mat->nRho, logrho, SCVHEOS_EDGE_TOL, &ix, &w);
+        interpLocateAxisTol(Mat->dLogRhoAxis, Mat->nRho, logrho, SCVHEOS_EDGE_TOL, SCVHEOS_EDGE_TOL_ABS, &ix, &w);
         Mat->nLookupFail++;
         if (iret == INTERP_BELOW) {
             SCVHEOS_WARN("scvheosLogTofLogRhoLogS: logs= %g below s(T_min)= %g at logrho= %g, "
@@ -991,14 +991,14 @@ double scvheosLogRhoofLogPLogT(SCVHEOSMAT *Mat, double logP, double logT) {
         SCVHEOS_FAIL_RETURN(Mat, "scvheosLogRhoofLogPLogT: invalid input logP= %g logT= %g.\n", logP, logT);
     }
 
-    iret = interpInvertX(&Mat->grid, Mat->dLogPArray, logT, logP, SCVHEOS_EDGE_TOL, &scvheosInvertOpt, &cell, &logrho);
+    iret = interpInvertXTol(&Mat->grid, Mat->dLogPArray, logT, logP, SCVHEOS_EDGE_TOL, SCVHEOS_EDGE_TOL_ABS, &scvheosInvertOpt, &cell, &logrho);
 
     if (iret == INTERP_OUTSIDE_YMIN || iret == INTERP_OUTSIDE_YMAX) {
         SCVHEOS_FAIL_RETURN(Mat, "scvheosLogRhoofLogPLogT: logT= %15.7E outside of the EOS table.\n", logT);
     }
     if (iret != INTERP_SUCCESS) {
         int iy = 0; double v = 0.0;
-        interpLocateAxis(Mat->dLogTAxis, Mat->nT, logT, SCVHEOS_EDGE_TOL, &iy, &v);
+        interpLocateAxisTol(Mat->dLogTAxis, Mat->nT, logT, SCVHEOS_EDGE_TOL, SCVHEOS_EDGE_TOL_ABS, &iy, &v);
         SCVHEOS_FAIL_RETURN(Mat, "scvheosLogRhoofLogPLogT: logP= %g %s at logT= %g "
                 "(row P(rho_min)= %g P(rho_max)= %g, logrho in [%g, %g]).\n", logP,
                 (iret == INTERP_NONMONOTONIC) ? "in a non-monotonic row" : scvheosInvertStatus(iret), logT,
@@ -1391,7 +1391,7 @@ int scvheosIsInExtrapLimit(SCVHEOSMAT *Mat, double rho, double u) {
     /* Same roundoff tolerance at the edges as the lookups themselves. */
     {
         int ix = 0; double w = 0.0;
-        int iret = interpLocateAxis(Mat->dLogRhoAxis, Mat->nRho, logrho, SCVHEOS_EDGE_TOL, &ix, &w);
+        int iret = interpLocateAxisTol(Mat->dLogRhoAxis, Mat->nRho, logrho, SCVHEOS_EDGE_TOL, SCVHEOS_EDGE_TOL_ABS, &ix, &w);
         if (iret == INTERP_BELOW) return SCVHEOS_OUTSIDE_RHOMIN;
         if (iret != INTERP_SUCCESS) return SCVHEOS_OUTSIDE_RHOMAX;
         {
