@@ -92,7 +92,8 @@ static int scvheosLocateLog(const SCVHEOSMAT *Mat, double logrho, double logT, I
  * u(T) and s(T) increasing along every rho column, P(rho) increasing along
  * every T row. Bilinear interpolation between two monotonic node columns is
  * monotonic, so checking the node columns covers every logrho. Reports the
- * number of defective columns/rows and the first few. The inversions do not
+ * number of defective columns/rows and the first few (with -DEOSLIB_VERBOSE only:
+ * every thread initialises its own instance, so the report repeated per thread). The inversions do not
  * detect them (that would cost O(n) per call): there they return a root that
  * need not be the physical one, so a suspicious T(rho, u), T(rho, s) or
  * rho(P, T) can be traced to the table with this report.
@@ -104,15 +105,15 @@ static void scvheosCheckMonotonic(SCVHEOSMAT *Mat) {
     for (int j = 0; j < nRho; j++) {
         int badU = interpNodeLineMonotonic(&Mat->grid, Mat->dLogUArray, INTERP_ALONG_Y, j);
         int badS = interpNodeLineMonotonic(&Mat->grid, Mat->dLogSArray, INTERP_ALONG_Y, j);
-        if (badU) { if (nBadU < nReport) fprintf(stderr, "scvheosInitMaterial: iMat= %i: u(T) not increasing at jRho= %i (logrho= %g), e.g. iT= %i.\n", Mat->iMat, j, Mat->dLogRhoAxis[j], badU); nBadU++; }
-        if (badS) { if (nBadS < nReport) fprintf(stderr, "scvheosInitMaterial: iMat= %i: s(T) not increasing at jRho= %i (logrho= %g), e.g. iT= %i.\n", Mat->iMat, j, Mat->dLogRhoAxis[j], badS); nBadS++; }
+        if (badU) { if (nBadU < nReport) SCVHEOS_WARN("scvheosInitMaterial: iMat= %i: u(T) not increasing at jRho= %i (logrho= %g), e.g. iT= %i.\n", Mat->iMat, j, Mat->dLogRhoAxis[j], badU); nBadU++; }
+        if (badS) { if (nBadS < nReport) SCVHEOS_WARN("scvheosInitMaterial: iMat= %i: s(T) not increasing at jRho= %i (logrho= %g), e.g. iT= %i.\n", Mat->iMat, j, Mat->dLogRhoAxis[j], badS); nBadS++; }
     }
     for (int i = 0; i < nT; i++) {
         int badP = interpNodeLineMonotonic(&Mat->grid, Mat->dLogPArray, INTERP_ALONG_X, i);
-        if (badP) { if (nBadP < nReport) fprintf(stderr, "scvheosInitMaterial: iMat= %i: P(rho) not increasing at iT= %i (logT= %g), e.g. jRho= %i.\n", Mat->iMat, i, Mat->dLogTAxis[i], badP); nBadP++; }
+        if (badP) { if (nBadP < nReport) SCVHEOS_WARN("scvheosInitMaterial: iMat= %i: P(rho) not increasing at iT= %i (logT= %g), e.g. jRho= %i.\n", Mat->iMat, i, Mat->dLogTAxis[i], badP); nBadP++; }
     }
     if (nBadU || nBadS || nBadP) {
-        fprintf(stderr, "scvheosInitMaterial: iMat= %i: non-monotonic columns: u(T) %i of %i, s(T) %i of %i, P(rho) %i of %i; "
+        SCVHEOS_WARN("scvheosInitMaterial: iMat= %i: non-monotonic columns: u(T) %i of %i, s(T) %i of %i, P(rho) %i of %i; "
                 "the inversions T(rho, u), T(rho, s) and rho(P, T) may return another root there.\n",
                 Mat->iMat, nBadU, nRho, nBadS, nRho, nBadP, nT);
     }
@@ -613,7 +614,7 @@ int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
             /* Defective node: non-finite (cv = 0), or not positive. */
             if (!isfinite(cs2) || !(cs2 > 0.0)) {
                 if (nReplaced < nReport) {
-                    fprintf(stderr, "scvheosGenerateSoundSpeedTable: iMat= %i iT= %i jRho= %i "
+                    SCVHEOS_WARN("scvheosGenerateSoundSpeedTable: iMat= %i iT= %i jRho= %i "
                             "logrho= %g logT= %g dPdRho= %g dPdT= %g cv= %g cs2= %g, "
                             "replaced by P/rho= %g\n", Mat->iMat, i, j,
                             Mat->dLogRhoAxis[j], Mat->dLogTAxis[i], dPdrho, dPdT, cv, cs2, P/rho);
@@ -633,7 +634,7 @@ int scvheosGenerateSoundSpeedTable(SCVHEOSMAT *Mat) {
     free(TNode);
 
     if (nReplaced > 0) {
-        fprintf(stderr, "scvheosGenerateSoundSpeedTable: iMat= %i: cs^2 replaced by P/rho at %i of %i nodes.\n",
+        SCVHEOS_WARN("scvheosGenerateSoundSpeedTable: iMat= %i: cs^2 replaced by P/rho at %i of %i nodes.\n",
                 Mat->iMat, nReplaced, nT*nRho);
     }
 

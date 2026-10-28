@@ -67,6 +67,9 @@
  *          s(rho1, T_max), the top row, like the clamp at rho2; it started from s(rho1, T_min)
  *          (the T(rho, u) fallback), so u2 was the cold curve at rho2 and the thermal energy
  *          was lost. Below the cold curve it still starts from s(rho1, T_min).
+ *          No output at initialisation unless compiled with -DEOSLIB_VERBOSE (SCVHEOS_WARN): the
+ *          monotonicity report and the sound speed repairs were printed on stderr unconditionally,
+ *          with one instance per thread 64 times. Errors before a fatal exit are still printed.
  */
 #define SCVHEOS_VERSION_TEXT      "1.3.0"
 #define SCVHEOS_VERSION_MAJOR     1
@@ -134,7 +137,7 @@
  *    s(rho, T_max) gives T_max (the ANEOSisentropicU convention for the
  *    isentrope).
  * On a non-monotonic column or row (a table defect, reported at
- * initialisation) the inversions T(rho, u), T(rho, s) and rho(P, T) return a
+ * initialisation with -DEOSLIB_VERBOSE) the inversions T(rho, u), T(rho, s) and rho(P, T) return a
  * root, not necessarily the physical one; they cannot detect it.
  *
  * Every failure and every fallback is counted in Mat->nLookupFail, once per
