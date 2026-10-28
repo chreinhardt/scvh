@@ -887,6 +887,24 @@ double scvheosCsofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
 }
 
 /*
+ * Calculate the specific entropy s(rho, u) in cgs (EOSlib convention, see
+ * scvheosSofRhoT), evaluated in the cell of the u-column inversion like
+ * scvheosPCTofRhoU.
+ *
+ * Returns SCVHEOS_FAIL_VALUE if rho is outside the table; s(rho, T_min) if
+ * u cannot be inverted. Either is counted once in nLookupFail (EOSlib built
+ * s(rho, u) from scvheosTofRhoU and scvheosSofRhoT, which counted a density
+ * outside the table twice: the T fallback and the failed s lookup).
+ */
+double scvheosSofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
+    INTERPCELL cell;
+    double logT;
+
+    if (scvheosLocateRhoU(Mat, __func__, rho, u, &cell, &logT) != 0) return SCVHEOS_FAIL_VALUE;
+    return scvheosExp10(interpCellValue(&Mat->grid, Mat->dLogSArray, &cell));
+}
+
+/*
  * Calculate the temperature logT(logrho, logu) by direct inversion of the
  * u column at logrho.
  *
@@ -1222,12 +1240,15 @@ double scvheosdPdRhoofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
     INTERPCELL cell;
     double logT, P;
     double dlPdlr, dlPdlT, dludlr, dludlT;
+    const long nLookupFail0 = Mat->nLookupFail;
 
     if (scvheosLocateRhoU(Mat, __func__, rho, u, &cell, &logT) != 0) return SCVHEOS_FAIL_VALUE;
 
     scvheosCellPartials(Mat, &cell, &dlPdlr, &dlPdlT, &dludlr, &dludlT);
 
     if (!(dludlT > 0.0)) {
+        /* Counted once per call: not again after a T fallback into a non-monotonic column. */
+        Mat->nLookupFail = nLookupFail0;
         SCVHEOS_FAIL_RETURN(Mat, "scvheosdPdRhoofRhoU: dlogu/dlogT= %g <= 0 at rho= %g u= %g (cell jRho= %i iT= %i).\n",
                 dludlT, rho, u, cell.ix, cell.iy);
     }
@@ -1248,12 +1269,15 @@ double scvheosdPdUofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
     INTERPCELL cell;
     double logT, P;
     double dlPdlr, dlPdlT, dludlr, dludlT;
+    const long nLookupFail0 = Mat->nLookupFail;
 
     if (scvheosLocateRhoU(Mat, __func__, rho, u, &cell, &logT) != 0) return SCVHEOS_FAIL_VALUE;
 
     scvheosCellPartials(Mat, &cell, &dlPdlr, &dlPdlT, &dludlr, &dludlT);
 
     if (!(dludlT > 0.0)) {
+        /* Counted once per call: not again after a T fallback into a non-monotonic column. */
+        Mat->nLookupFail = nLookupFail0;
         SCVHEOS_FAIL_RETURN(Mat, "scvheosdPdUofRhoU: dlogu/dlogT= %g <= 0 at rho= %g u= %g (cell jRho= %i iT= %i).\n",
                 dludlT, rho, u, cell.ix, cell.iy);
     }
@@ -1268,28 +1292,29 @@ double scvheosdPdUofRhoU(SCVHEOSMAT *Mat, double rho, double u) {
  *
  * If the entropy S(rho1, u1) is not attained at rho2 the state is clamped to
  * the table edge: u(rho2, T_min) (the cold curve) when it would fall below
- * the table, u(rho2, T_max) above it. This follows ANEOSisentropicU; the
- * fallback is counted in Mat->nLookupFail. Returns SCVHEOS_FAIL_VALUE if
- * rho1 or rho2 is outside the table or (rho1, u1) cannot be inverted.
+ * the table, u(rho2, T_max) above it. This follows ANEOSisentropicU. Returns
+ * SCVHEOS_FAIL_VALUE if rho1 or rho2 is outside the table; (rho1, u1) that
+ * cannot be inverted falls back to T_min (scvheosTofRhoU). A call counts at
+ * most once in nLookupFail, however many of these steps fail or fall back
+ * (up to 1.3.0 rho1 outside the table counted twice).
  */
 double scvheosIsentropicU(SCVHEOSMAT *Mat, double rho1, double u1, double rho2) {
-    double T1;
+    const long nLookupFail0 = Mat->nLookupFail;
     double T2;
     double S;
-    double u2;
+    double u2 = SCVHEOS_FAIL_VALUE;
 
-    T1 = scvheosTofRhoU(Mat, rho1, u1);
-    if (scvheosFailed(T1)) return SCVHEOS_FAIL_VALUE;
+    /* s(rho1, u1) in the cell of (rho1, u1): T fallback and density check in one lookup. */
+    S = scvheosSofRhoU(Mat, rho1, u1);
+    if (!scvheosFailed(S)) {
+        T2 = scvheosTofRhoS(Mat, rho2, S);
+        if (!scvheosFailed(T2)) {
+            u2 = scvheosUofRhoT(Mat, rho2, T2);
+            if (scvheosFailed(u2)) u2 = SCVHEOS_FAIL_VALUE;
+        }
+    }
 
-    S = scvheosSofRhoT(Mat, rho1, T1);
-    if (scvheosFailed(S)) return SCVHEOS_FAIL_VALUE;
-
-    T2 = scvheosTofRhoS(Mat, rho2, S);
-    if (scvheosFailed(T2)) return SCVHEOS_FAIL_VALUE;
-   
-    u2 = scvheosUofRhoT(Mat, rho2, T2);
-    if (scvheosFailed(u2)) return SCVHEOS_FAIL_VALUE;
-
+    if (Mat->nLookupFail > nLookupFail0) Mat->nLookupFail = nLookupFail0 + 1;
     return u2;
 }
 

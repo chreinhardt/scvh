@@ -47,6 +47,12 @@
  *          INTERP_*_REQUIRED clashed with the other vendoring libraries).
  *          New scvheosUCold, so that EOSlib no longer reads LogTMin.
  *          scvheosPrintMat prints nLookupFail.
+ *          New scvheosSofRhoU (one cell lookup, like scvheosPCTofRhoU): EOSlib
+ *          built s(rho, u) from T(rho, u) and s(rho, T), which counted a density
+ *          outside the table twice. scvheosIsentropicU and the (rho, u) derivatives
+ *          count a call at most once in nLookupFail (the isentrope counted rho1
+ *          outside the table twice, the derivatives a T fallback into a column with
+ *          dlogu/dlogT <= 0 twice).
  */
 #define SCVHEOS_VERSION_TEXT      "1.3.0"
 #define SCVHEOS_VERSION_MAJOR     1
@@ -107,8 +113,9 @@
  *    s(rho, T_max) gives T_max (the ANEOSisentropicU convention for the
  *    isentrope).
  *
- * Every failure and every fallback is counted in Mat->nLookupFail and
- * reported on stderr only when the library is compiled with -DEOSLIB_VERBOSE
+ * Every failure and every fallback is counted in Mat->nLookupFail, once per
+ * call (a call that fails or falls back counts 1, however many of its steps
+ * do), and reported on stderr only when the library is compiled with -DEOSLIB_VERBOSE
  * (SCVHEOS_WARN). Test a returned value with scvheosFailed(x) (true for the
  * sentinel and for NaN, in log or linear space); EOSlib exposes the same
  * test as EOSFailed(). Errors during initialisation (missing or defective
@@ -239,6 +246,9 @@ double scvheosLogCsofLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT);
 double scvheosPofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosUofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 double scvheosSofRhoT(SCVHEOSMAT *Mat, double rho, double T);
+/* s(rho, u) in cgs from one cell lookup; SCVHEOS_FAIL_VALUE if rho is outside the table,
+ * s(rho, T_min) if u cannot be inverted (counted once). */
+double scvheosSofRhoU(SCVHEOSMAT *Mat, double rho, double u);
 double scvheosCsofRhoT(SCVHEOSMAT *Mat, double rho, double T);
 
 double scvheosPofRhoU(SCVHEOSMAT *Mat, double rho, double u);
