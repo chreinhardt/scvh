@@ -53,6 +53,9 @@
  *          count a call at most once in nLookupFail (the isentrope counted rho1
  *          outside the table twice, the derivatives a T fallback into a column with
  *          dlogu/dlogT <= 0 twice).
+ *          Edge tolerance on the log axes SCVHEOS_EDGE_TOL*|bound| +
+ *          SCVHEOS_EDGE_TOL_ABS (a log bound at 0 had none); uses the *Tol
+ *          functions of interpBilinear (to be required when its version is bumped).
  */
 #define SCVHEOS_VERSION_TEXT      "1.3.0"
 #define SCVHEOS_VERSION_MAJOR     1
@@ -83,8 +86,15 @@
  * bound (in which direction depends on the libm), so it is accepted and
  * clamped onto the bound rather than rejected. The same tolerance is used
  * on the targets of the inversions (u, s, P in log space).
+ *
+ * The axes are log10 rho and log10 T, where the round-trip error of
+ * log10(10^x) is absolute (~1e-16) as well as relative to |x|. The band at a
+ * bound b is therefore SCVHEOS_EDGE_TOL*|b| + SCVHEOS_EDGE_TOL_ABS (the *Tol
+ * functions of interpBilinear): with the relative part alone a bound at or
+ * near 0, which the code-unit shift of log rho can produce, had no tolerance.
  */
 #define SCVHEOS_EDGE_TOL 1e-13
+#define SCVHEOS_EDGE_TOL_ABS 1e-13
 
 /*
  * Status codes. SCVHEOS_FAIL is a generic failure (initialization, I/O);
