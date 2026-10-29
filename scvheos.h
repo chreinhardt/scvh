@@ -77,14 +77,16 @@
  *          The note that SCVHEOS_RHO0_CGS lies outside the table (rho0 moved to the centre of the rho
  *          axis) is SCVHEOS_WARN as well; it was the last unconditional fprintf of the init that is
  *          not followed by a fatal exit.
- *          scvheosIsInExtrapLimit reports rho = +inf as SCVHEOS_OUTSIDE_RHOMAX and u = +inf as
+ *   1.3.1  scvheosIsInExtrapLimit reports rho = +inf as SCVHEOS_OUTSIDE_RHOMAX and u = +inf as
  *          SCVHEOS_OUTSIDE_TMAX, the side they lie on, as ANEOSmaterial, Tillotson and the ideal gas
- *          do (the EOSlib contract); both were reported as RHOMIN and TMIN.
+ *          do (the EOSlib contract); both were reported as RHOMIN and TMIN. Requires interpBilinear
+ *          1.0.4: the *Tol functions came with 1.0.3 without a version bump, so a 1.0.3 copy may
+ *          lack them (the requirement the 1.3.0 entry left open).
  */
-#define SCVHEOS_VERSION_TEXT      "1.3.0"
+#define SCVHEOS_VERSION_TEXT      "1.3.1"
 #define SCVHEOS_VERSION_MAJOR     1
 #define SCVHEOS_VERSION_MINOR     3
-#define SCVHEOS_VERSION_PATCH     0
+#define SCVHEOS_VERSION_PATCH     1
 
 /*
  * interpBilinear: the minimum version and the layout of its types this library needs. The names
@@ -94,7 +96,7 @@
  */
 #define SCVHEOS_INTERP_VERSION_MAJOR_REQUIRED 1
 #define SCVHEOS_INTERP_VERSION_MINOR_REQUIRED 0
-#define SCVHEOS_INTERP_VERSION_PATCH_REQUIRED 3
+#define SCVHEOS_INTERP_VERSION_PATCH_REQUIRED 4
 #define SCVHEOS_INTERP_ABI_VERSION 1
 #if (INTERP_VERSION_MAJOR * 10000 + INTERP_VERSION_MINOR * 100 + INTERP_VERSION_PATCH) < \
     (SCVHEOS_INTERP_VERSION_MAJOR_REQUIRED * 10000 + SCVHEOS_INTERP_VERSION_MINOR_REQUIRED * 100 + SCVHEOS_INTERP_VERSION_PATCH_REQUIRED)
