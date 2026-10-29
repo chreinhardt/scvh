@@ -1411,16 +1411,20 @@ int scvheosCheckBoundsLogRhoLogT(SCVHEOSMAT *Mat, double logrho, double logT) {
  * roundoff tolerance the inversion applies to its target, so a state that
  * passes this test can be inverted.
  *
- * rho <= 0 reports RHOMIN and u <= 0 reports TMIN: log10 of a non-positive
- * number is NaN or -inf, and the comparisons below would otherwise let the
- * state through. Non-finite input is reported the same way.
+ * rho <= 0 (and NaN) reports RHOMIN and u <= 0 (and NaN) reports TMIN: log10
+ * of a non-positive number is NaN or -inf, and the comparisons below would
+ * otherwise let the state through. +inf reports RHOMAX and TMAX, the side it
+ * lies on, as in every other library (EOSlib contract); up to 1.3.0 it was
+ * reported as RHOMIN and TMIN.
  */
 int scvheosIsInExtrapLimit(SCVHEOSMAT *Mat, double rho, double u) {
     double logrho;
     double logu;
 
-    if (!(rho > 0.0) || !isfinite(rho)) return SCVHEOS_OUTSIDE_RHOMIN;
-    if (!(u > 0.0) || !isfinite(u)) return SCVHEOS_OUTSIDE_TMIN;
+    if (!(rho > 0.0)) return SCVHEOS_OUTSIDE_RHOMIN;
+    if (!isfinite(rho)) return SCVHEOS_OUTSIDE_RHOMAX;
+    if (!(u > 0.0)) return SCVHEOS_OUTSIDE_TMIN;
+    if (!isfinite(u)) return SCVHEOS_OUTSIDE_TMAX;
 
     logrho = log10(rho);
     logu = log10(u);

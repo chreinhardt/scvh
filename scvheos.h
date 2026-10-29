@@ -77,6 +77,9 @@
  *          The note that SCVHEOS_RHO0_CGS lies outside the table (rho0 moved to the centre of the rho
  *          axis) is SCVHEOS_WARN as well; it was the last unconditional fprintf of the init that is
  *          not followed by a fatal exit.
+ *          scvheosIsInExtrapLimit reports rho = +inf as SCVHEOS_OUTSIDE_RHOMAX and u = +inf as
+ *          SCVHEOS_OUTSIDE_TMAX, the side they lie on, as ANEOSmaterial, Tillotson and the ideal gas
+ *          do (the EOSlib contract); both were reported as RHOMIN and TMIN.
  */
 #define SCVHEOS_VERSION_TEXT      "1.3.0"
 #define SCVHEOS_VERSION_MAJOR     1

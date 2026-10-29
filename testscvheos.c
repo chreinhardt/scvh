@@ -623,6 +623,12 @@ static void testExtrapLimit(SCVHEOSMAT *m)
     CHECK(scvheosIsInExtrapLimit(m, rhoOk, -1.0) == SCVHEOS_OUTSIDE_TMIN, "negative u");
     CHECK(scvheosIsInExtrapLimit(m, rhoOk, 0.0) == SCVHEOS_OUTSIDE_TMIN, "zero u");
     CHECK(scvheosIsInExtrapLimit(m, rhoOk, NAN) == SCVHEOS_OUTSIDE_TMIN, "NaN u");
+    /* +inf by the side it lies on (it was RHOMIN and TMIN), -inf and NaN rho below. */
+    CHECK(scvheosIsInExtrapLimit(m, INFINITY, uOk) == SCVHEOS_OUTSIDE_RHOMAX, "+inf rho");
+    CHECK(scvheosIsInExtrapLimit(m, NAN, uOk) == SCVHEOS_OUTSIDE_RHOMIN, "NaN rho");
+    CHECK(scvheosIsInExtrapLimit(m, rhoOk, INFINITY) == SCVHEOS_OUTSIDE_TMAX, "+inf u");
+    CHECK(scvheosIsInExtrapLimit(m, rhoOk, -INFINITY) == SCVHEOS_OUTSIDE_TMIN, "-inf u");
+    CHECK(scvheosIsInExtrapLimit(m, INFINITY, NAN) == SCVHEOS_OUTSIDE_RHOMAX, "rho checked before u");
     /* Consistency: anything the status accepts must evaluate without a sentinel. */
     for (int a = 0; a < NSAMPLE_RHO; a++) for (int b = 0; b < NSAMPLE_T; b++) {
         double lr = sampleLogRho(m, a);
