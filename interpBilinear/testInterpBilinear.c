@@ -22,11 +22,15 @@
  * the arithmetic, not any particular material. Every check is an invariant
  * of the interpolant: a globally bilinear function must be reproduced to
  * roundoff, inversions must round-trip, and constructed defects (a dip, a
- * plateau, an edge overshoot) must produce the documented status codes.
+ * plateau, an edge overshoot) must produce the documented status codes. The
+ * edge tolerance band tol*|bound| + tolAbs is tested on axes like those of the
+ * consumers: a linear axis starting at 1e-25 (ANEOS) and log axes with a bound
+ * at 0 (scvheos, reos3 after an arbitrary code-unit shift of log rho).
  *
  * Usage: testInterpBilinear. Exit status is the number of failed checks.
  */
 #include <math.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "interpBilinear.h"
@@ -149,8 +153,9 @@ static void testLocate(void)
     CHECK(interpLocateAxis(xAxis, NX, -INFINITY, 1e-13, &i, &w) == INTERP_BELOW, "-inf");
     CHECK(interpLocateAxis(xAxis, NX, INFINITY, 1e-13, &i, &w) == INTERP_ABOVE, "+inf");
     CHECK(interpLocateAxis(xAxis, NX, NAN, 1e-13, &i, &w) == INTERP_INVALID, "NaN");
-    /* The tolerance is relative to the bound, never absolute: on an axis
-     * starting at 1e-25 (the ANEOS tables) half the first node is far out. */
+    /* With one tol the tolerance is relative to the bound only (tolAbs = 0, the
+     * linear axes): on an axis starting at 1e-25 (the ANEOS tables) half the
+     * first node is far out. The absolute part is tested in testLocateTol. */
     {
         static const double tiny[3] = { 1e-25, 1e-20, 1e-15 };
         CHECK(interpLocateAxis(tiny, 3, 0.5e-25, 1e-13, &i, &w) == INTERP_BELOW, "tiny axis: half the first node is below");
@@ -171,6 +176,116 @@ static void testLocate(void)
     CHECK(interpLocate(&G, 0.5 * xAxis[0], 2.0 * yAxis[NY-1], 0.0, &c) == INTERP_OUTSIDE_XMIN, "x before y");
     CHECK(interpLocate(&G, xAxis[3], NAN, 0.0, &c) == INTERP_INVALID, "NaN y");
     CHECK(interpLocate(&G, xAxis[NX-1], yAxis[NY-1], 0.0, &c) == INTERP_SUCCESS && c.ix == NX - 2 && c.iy == NY - 2 && c.u == 1.0 && c.v == 1.0, "top corner");
+    END_TEST();
+}
+
+/*
+ * The edge tolerance band tol*|bound| + tolAbs (interpLocateAxisTol and the other *Tol variants).
+ * A log axis carries the absolute roundoff of log10(10^x), so scvheos and reos3 pass tolAbs > 0;
+ * with the relative part alone a log bound at 0 got no tolerance (up to 1.0.3). The functions with
+ * one tol are the *Tol variants with tolAbs = 0, bit for bit, so the linear axes of ANEOSmaterial
+ * are unchanged.
+ */
+static void testLocateTol(void)
+{
+    int failsBefore = nFails;
+    static const INTERPINVERTOPT strict = INTERP_INVERT_STRICT;
+    const double tol = 1e-13, tolAbs = 1e-13;   /* SCVHEOS_EDGE_TOL(_ABS), REOS3_EDGE_TOL(_ABS) */
+    int i = 0, n;
+    double w = 0.0;
+    TEST("edge tolerance band tol*|bound| + tolAbs (*Tol variants)");
+
+    /* A log axis ending at 0 and one starting at 0: a few ulps outside are clamped with tolAbs, not without. */
+    {
+        static const double up[4] = { -3.0, -2.0, -1.0, 0.0 }, lo[4] = { 0.0, 1.0, 2.0, 3.0 };
+        CHECK(interpLocateAxis(up, 4, 2.2e-16, tol, &i, &w) == INTERP_ABOVE, "bound 0, relative tolerance only: no band");
+        CHECK(interpLocateAxisTol(up, 4, 2.2e-16, tol, tolAbs, &i, &w) == INTERP_SUCCESS && i == 2 && w == 1.0, "bound 0 from above: clamped");
+        CHECK(interpLocateAxis(lo, 4, -2.2e-16, tol, &i, &w) == INTERP_BELOW, "bound 0 from below, relative only: no band");
+        CHECK(interpLocateAxisTol(lo, 4, -2.2e-16, tol, tolAbs, &i, &w) == INTERP_SUCCESS && i == 0 && w == 0.0, "bound 0 from below: clamped");
+        /* The band is tolAbs at a bound of 0: just inside and just outside it. */
+        CHECK(interpLocateAxisTol(lo, 4, -0.9 * tolAbs, tol, tolAbs, &i, &w) == INTERP_SUCCESS, "inside the absolute band");
+        CHECK(interpLocateAxisTol(lo, 4, -1.1 * tolAbs, tol, tolAbs, &i, &w) == INTERP_BELOW, "outside the absolute band");
+        CHECK(interpLocateAxisTol(up, 4, 1.1 * tolAbs, tol, tolAbs, &i, &w) == INTERP_ABOVE, "outside the absolute band (above)");
+        /* A clearly outside value still fails, NaN is still invalid, outputs untouched on failure. */
+        CHECK(interpLocateAxisTol(lo, 4, -1e-10, tol, tolAbs, &i, &w) == INTERP_BELOW, "1e-10 outside");
+        CHECK(interpLocateAxisTol(lo, 4, NAN, tol, tolAbs, &i, &w) == INTERP_INVALID, "NaN");
+        i = -7; w = -7.0;
+        interpLocateAxisTol(lo, 4, -1e-10, tol, tolAbs, &i, &w);
+        CHECK(i == -7 && w == -7.0, "outputs touched on failure");
+    }
+    /* The two parts add: at a bound b the band is tol*|b| + tolAbs. */
+    {
+        static const double ax[3] = { -25.0, -10.0, 5.0 };
+        const double bandLo = tol * 25.0 + tolAbs, bandHi = tol * 5.0 + tolAbs;
+        CHECK(interpLocateAxisTol(ax, 3, -25.0 - 0.9 * bandLo, tol, tolAbs, &i, &w) == INTERP_SUCCESS && i == 0 && w == 0.0, "within tol*|b| + tolAbs below");
+        CHECK(interpLocateAxisTol(ax, 3, -25.0 - 1.1 * bandLo, tol, tolAbs, &i, &w) == INTERP_BELOW, "beyond tol*|b| + tolAbs below");
+        CHECK(interpLocateAxisTol(ax, 3, 5.0 + 0.9 * bandHi, tol, tolAbs, &i, &w) == INTERP_SUCCESS && i == 1 && w == 1.0, "within tol*|b| + tolAbs above");
+        CHECK(interpLocateAxisTol(ax, 3, 5.0 + 1.1 * bandHi, tol, tolAbs, &i, &w) == INTERP_ABOVE, "beyond tol*|b| + tolAbs above");
+        /* Between tol*|b| and tol*|b| + tolAbs: the sum accepts, the relative part alone rejects. */
+        CHECK(interpLocateAxisTol(ax, 3, -25.0 - (tol * 25.0 + 0.5 * tolAbs), tol, tolAbs, &i, &w) == INTERP_SUCCESS, "inside the sum");
+        CHECK(interpLocateAxis(ax, 3, -25.0 - (tol * 25.0 + 0.5 * tolAbs), tol, &i, &w) == INTERP_BELOW, "relative part alone is narrower");
+    }
+    /* A log axis whose bound lands within roundoff of 0 after a unit shift (log rho_code = log rho_cgs
+     * - log10(GmPerCc)): states on the edge converted from cgs are accepted for every shift. */
+    {
+        int nRel = 0, nTol = 0, nTried = 0;
+        for (n = -200; n <= 200; n++) {
+            const double logEdgeCGS = 2.6987, shift = logEdgeCGS * (1.0 + n * 1e-15);
+            const double axis[3] = { logEdgeCGS - 4.0 - shift, logEdgeCGS - 2.0 - shift, logEdgeCGS - shift };   /* ends at ~0 */
+            const double x = log10(pow(10.0, logEdgeCGS) / pow(10.0, shift));   /* the edge, as a code would hold it */
+            nTried++;
+            if (interpLocateAxis(axis, 3, x, tol, &i, &w) != INTERP_SUCCESS) nRel++;
+            if (interpLocateAxisTol(axis, 3, x, tol, tolAbs, &i, &w) != INTERP_SUCCESS) nTol++;
+        }
+        CHECK(nTol == 0, "edge after a unit shift rejected for %d of %d shifts with tolAbs", nTol, nTried);
+        CHECK(nRel > 0, "the relative tolerance alone never failed (%d shifts): the test does not reach the case", nTried);
+    }
+    /* Grid functions: a log grid with the x axis ending at 0 and the y axis starting at 0. */
+    {
+        static double lx[NX], ly[NY], zl[NX * NY];
+        INTERPGRID L = { NX, NY, lx, ly };
+        INTERPCELL c = { 0, 0, 0.0, 0.0 };
+        double r = 0.0, z = 0.0;
+        for (i = 0; i < NX; i++) lx[i] = -4.0 + 4.0 * i / (NX - 1);   /* ..., 0 */
+        for (n = 0; n < NY; n++) ly[n] = 6.0 * n / (NY - 1);           /* 0, ... */
+        lx[NX - 1] = 0.0; ly[0] = 0.0;
+        for (i = 0; i < NX; i++) for (n = 0; n < NY; n++) zl[i * NY + n] = 1.0 + 0.3 * lx[i] + 0.7 * ly[n];   /* increasing in both */
+        CHECK(interpLocate(&L, 2.2e-16, 1.0, tol, &c) == INTERP_OUTSIDE_XMAX, "interpLocate: x bound 0, no band");
+        CHECK(interpLocateTol(&L, 2.2e-16, 1.0, tol, tolAbs, &c) == INTERP_SUCCESS && c.ix == NX - 2 && c.u == 1.0, "interpLocateTol: x clamped");
+        CHECK(interpLocateTol(&L, -1.0, -2.2e-16, tol, tolAbs, &c) == INTERP_SUCCESS && c.iy == 0 && c.v == 0.0, "interpLocateTol: y clamped");
+        CHECK(interpLocateTol(&L, -1.0, -1e-10, tol, tolAbs, &c) == INTERP_OUTSIDE_YMIN, "interpLocateTol: y clearly below");
+        interpValue(&L, zl, 0.0, 2.0, 0.0, &z);
+        CHECK(interpInvertY(&L, zl, 2.2e-16, z, tol, &strict, &c, &r) == INTERP_OUTSIDE_XMAX, "interpInvertY: x bound 0, no band");
+        CHECK(interpInvertYTol(&L, zl, 2.2e-16, z, tol, tolAbs, &strict, &c, &r) == INTERP_SUCCESS && c.ix == NX - 2, "interpInvertYTol: x clamped");
+        CHECK_REL(r, 2.0, 1e-12, "interpInvertYTol at the clamped edge");
+        interpValue(&L, zl, -1.0, 0.0, 0.0, &z);
+        CHECK(interpInvertX(&L, zl, -2.2e-16, z, tol, &strict, &c, &r) == INTERP_OUTSIDE_YMIN, "interpInvertX: y bound 0, no band");
+        CHECK(interpInvertXTol(&L, zl, -2.2e-16, z, tol, tolAbs, &strict, &c, &r) == INTERP_SUCCESS && c.iy == 0, "interpInvertXTol: y clamped");
+        CHECK_REL(r, -1.0, 1e-12, "interpInvertXTol at the clamped edge");
+    }
+    /* The one-tol functions are the *Tol variants with tolAbs = 0, bit for bit, inside and outside. */
+    for (n = 0; n < 3000; n++) {
+        double x, y, z = 0.0, a = 0.0, b = 0.0;
+        int ia = -1, ib = -1, ra, rb;
+        double wa = -1.0, wb = -1.0;
+        INTERPCELL ca = { -1, -1, -1.0, -1.0 }, cb = { -1, -1, -1.0, -1.0 };
+        randomPoint(&x, &y);
+        if (n % 3 == 1) x = xAxis[0] * (1.0 - (n % 7) * 1e-15);        /* at and just below the edge */
+        if (n % 3 == 2) x = xAxis[NX-1] * (1.0 + (n % 7) * 1e-14);     /* just above, partly outside the band */
+        ra = interpLocateAxis(xAxis, NX, x, tol, &ia, &wa);
+        rb = interpLocateAxisTol(xAxis, NX, x, tol, 0.0, &ib, &wb);
+        CHECK(ra == rb && ia == ib && wa == wb, "interpLocateAxis != interpLocateAxisTol(tolAbs = 0) at x = %.17g", x);
+        ra = interpLocate(&G, x, y, tol, &ca);
+        rb = interpLocateTol(&G, x, y, tol, 0.0, &cb);
+        CHECK(ra == rb && ca.ix == cb.ix && ca.iy == cb.iy && ca.u == cb.u && ca.v == cb.v, "interpLocate != interpLocateTol(tolAbs = 0)");
+        interpValue(&G, zMono, fmin(fmax(x, xAxis[0]), xAxis[NX-1]), y, 0.0, &z);
+        ra = interpInvertY(&G, zMono, x, z, tol, &strict, &ca, &a);
+        rb = interpInvertYTol(&G, zMono, x, z, tol, 0.0, &strict, &cb, &b);
+        CHECK(ra == rb && (ra != INTERP_SUCCESS || (a == b && ca.ix == cb.ix && ca.iy == cb.iy && ca.v == cb.v)), "interpInvertY != interpInvertYTol(tolAbs = 0)");
+        ra = interpInvertX(&G, zMono, y, z, tol, &strict, &ca, &a);
+        rb = interpInvertXTol(&G, zMono, y, z, tol, 0.0, &strict, &cb, &b);
+        CHECK(ra == rb && (ra != INTERP_SUCCESS || (a == b && ca.ix == cb.ix && ca.iy == cb.iy && ca.u == cb.u)), "interpInvertX != interpInvertXTol(tolAbs = 0)");
+    }
     END_TEST();
 }
 
@@ -330,8 +445,9 @@ static void testInvertDefects(void)
     CHECK(interpNodeLineMonotonic(&G, zDip, INTERP_ALONG_X, 9) != 0, "dip visible along x at iy = 9");
 
     /* Targets in the dip region are attained three times on the node line
-     * (u = 0 at ix = 10). Tolerant mode must return a segment that reproduces
-     * the target; strict mode either does so or reports NONMONOTONIC. */
+     * (u = 0 at ix = 10). Both modes must return a segment that reproduces the
+     * target: the end nodes bracket it, and a bisection keeps a bracketing
+     * segment on any line (strict mode cannot detect the defect). */
     {
         double zlo = zDip[10 * NY + 10], zhi = zDip[10 * NY + 8];   /* dip bottom .. dip top */
         int m;
@@ -345,10 +461,10 @@ static void testInvertDefects(void)
                 /* The fallback convention: lowest-index root unless the sign bisection landed first. */
             }
             r = interpInvertLine(&G, zDip, INTERP_ALONG_Y, 10, 0.0, target, &strict, &k, &t);
-            CHECK(r == INTERP_SUCCESS || r == INTERP_NONMONOTONIC, "strict on dip: status %d", r);
+            CHECK(r == INTERP_SUCCESS, "strict on dip: status %d", r);
             if (r == INTERP_SUCCESS) {
                 double f = (1 - t) * interpLineValue(&G, zDip, INTERP_ALONG_Y, 10, 0.0, k) + t * interpLineValue(&G, zDip, INTERP_ALONG_Y, 10, 0.0, k + 1);
-                CHECK_REL(f, target, 1e-13, "strict on dip reproduces target when it succeeds");
+                CHECK_REL(f, target, 1e-13, "strict on dip reproduces target");
             }
         }
     }
@@ -391,6 +507,218 @@ static void testInvertDefects(void)
     END_TEST();
 }
 
+/*
+ * Inversion on short hand-made lines (a 2 x n grid with two equal node columns, so the line is the
+ * node column itself) and on random non-monotonic lines:
+ *   - a bisection whose end nodes bracket the target always ends on a root, in both modes and on
+ *     any line (up to 1.0.3 a strict-mode check for a non-bracketing segment, INTERP_NONMONOTONIC,
+ *     could never fire);
+ *   - strict mode fails for a target outside [f_0, f_n-1] even where a dip or a rise of the line
+ *     attains it, tolerant mode finds the lowest-index root there;
+ *   - a target equal to f_0 is node 0 in tolerant mode (k = 0, t = 0), also on a non-monotonic line
+ *     where the sign bisection would have ended on another root;
+ *   - the node tolerance of the tolerant mode covers the last node as well (k = n-2, t = 1), where
+ *     a nearly flat last segment makes the edge band too narrow (up to 1.0.3 the scan skipped it);
+ *   - an infinite target is attained by no segment: INTERP_ABOVE/INTERP_BELOW in strict mode,
+ *     INTERP_NOT_ATTAINED in tolerant mode (up to 1.0.3 the node tolerance of the tolerant mode
+ *     accepted it at node 0, since |inf - f_0| = inf <= nodeTol*inf), outputs untouched.
+ */
+#define LINE_NMAX 64
+static double lineAxisX[2] = { 0.0, 1.0 }, lineAxisY[LINE_NMAX], lineZ[2 * LINE_NMAX];
+
+static INTERPGRID makeLine(const double *f, int n)
+{
+    INTERPGRID L = { 2, n, lineAxisX, lineAxisY };
+    int j;
+    for (j = 0; j < n; j++) { lineAxisY[j] = j; lineZ[j] = f[j]; lineZ[n + j] = f[j]; }
+    return L;
+}
+
+static double lineAt(const INTERPGRID *L, int k, double t)
+{
+    return (1.0 - t) * interpLineValue(L, lineZ, INTERP_ALONG_Y, 0, 0.0, k) + t * interpLineValue(L, lineZ, INTERP_ALONG_Y, 0, 0.0, k + 1);
+}
+
+static void testInvertLines(void)
+{
+    int failsBefore = nFails;
+    static const INTERPINVERTOPT strict = INTERP_INVERT_STRICT;
+    static const INTERPINVERTOPT tolerant = INTERP_INVERT_TOLERANT;
+    int k = 0, r, n;
+    double t = 0.0;
+    TEST("inversion: bracket invariant, dips outside the end nodes, f_0, inf");
+
+    /* A dip below f_0 right after the first node: attained only there. */
+    {
+        static const double f[5] = { 1.0, 0.5, 2.0, 3.0, 4.0 };
+        INTERPGRID L = makeLine(f, 5);
+        CHECK(interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, 0.75, &strict, &k, &t) == INTERP_BELOW, "strict: target only in a dip below f_0");
+        r = interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, 0.75, &tolerant, &k, &t);
+        CHECK(r == INTERP_SUCCESS && k == 0 && fabs(t - 0.5) < 1e-15, "tolerant: lowest-index root in the dip (status %d, k=%d, t=%g)", r, k, t);
+        /* Between f_0 and the top of the line: both find a root. */
+        CHECK(interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, 1.5, &strict, &k, &t) == INTERP_SUCCESS && fabs(lineAt(&L, k, t) - 1.5) < 1e-15, "strict above f_0");
+    }
+    /* A rise above f_n-1 before the end: strict fails, tolerant finds it. */
+    {
+        static const double f[5] = { 0.0, 1.0, 5.0, 2.0, 3.0 };
+        INTERPGRID L = makeLine(f, 5);
+        CHECK(interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, 4.0, &strict, &k, &t) == INTERP_ABOVE, "strict: target only in a rise above f_n-1");
+        r = interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, 4.0, &tolerant, &k, &t);
+        CHECK(r == INTERP_SUCCESS && k == 1 && fabs(lineAt(&L, k, t) - 4.0) < 1e-15, "tolerant: root in the rise (status %d, k=%d)", r, k);
+    }
+    /* Target equal to f_0. */
+    {
+        /* Non-monotonic: the sign bisection would move away from node 0 and end on the 3 -> 0.5 crossing. */
+        static const double f[5] = { 1.0, 3.0, 0.5, 2.0, 4.0 };
+        INTERPGRID L = makeLine(f, 5);
+        k = -1; t = -1.0;
+        CHECK(interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, 1.0, &tolerant, &k, &t) == INTERP_SUCCESS && k == 0 && t == 0.0,
+              "tolerant, target f_0 on a non-monotonic line: k=%d t=%g", k, t);
+        CHECK(interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, 1.0, &strict, &k, &t) == INTERP_SUCCESS && lineAt(&L, k, t) == 1.0,
+              "strict, target f_0 on a non-monotonic line: a root");
+    }
+    {
+        static const double f[4] = { 1.0, 2.0, 3.0, 4.0 }, d[4] = { 4.0, 3.0, 2.0, 1.0 };
+        INTERPGRID L = makeLine(f, 4);
+        k = -1; t = -1.0;
+        CHECK(interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, 1.0, &tolerant, &k, &t) == INTERP_SUCCESS && k == 0 && t == 0.0, "tolerant, target f_0, increasing");
+        CHECK(interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, 1.0, &strict, &k, &t) == INTERP_SUCCESS && k == 0 && t == 0.0, "strict, target f_0, increasing");
+        L = makeLine(d, 4);
+        k = -1; t = -1.0;
+        CHECK(interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, 4.0, &tolerant, &k, &t) == INTERP_SUCCESS && k == 0 && t == 0.0, "tolerant, target f_0, decreasing");
+        CHECK(interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, 1.0, &tolerant, &k, &t) == INTERP_SUCCESS && k == 2 && t == 1.0, "tolerant, target f_n-1, decreasing");
+    }
+    /*
+     * The node tolerance at the last node. The last segment is nearly flat (span d = 1e-9), so the
+     * edge band edgeTol*d = 1e-13 is far narrower than nodeTol*|f_n-1| = 1e-12. A target 5e-13 beyond
+     * f_n-1 is outside the band and more than nodeTol away from f_n-2: only node n-1 itself is within
+     * the node tolerance. Up to 1.0.3 the node scan stopped at n-2 and the target was not attained.
+     * The result is the end of the last segment, (n-2, 1), as for a target on the last node.
+     */
+    {
+        const double d = 1e-9, e = 5e-13;
+        const double f[4] = { 0.5, 0.8, 1.0 - d, 1.0 }, fd[4] = { 1.0, 1.0 - d, 0.8, 0.5 };
+        INTERPGRID L = makeLine(f, 4);
+        CHECK(tolerant.edgeTol * d < e && e < tolerant.nodeTol * 1.0 && d + e > tolerant.nodeTol * (1.0 + e), "test setup: target outside the edge band, within nodeTol of the last node only");
+        k = -1; t = -1.0;
+        r = interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, 1.0 + e, &tolerant, &k, &t);
+        CHECK(r == INTERP_SUCCESS && k == 2 && t == 1.0, "tolerant, increasing: roundoff above the last node (status %d, k=%d, t=%g)", r, k, t);
+        r = interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, 1.0 - 3.0 * d, &tolerant, &k, &t);
+        CHECK(r == INTERP_SUCCESS && k == 1, "tolerant, increasing: a bracketed target is unchanged (status %d, k=%d)", r, k);
+        r = interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, 1.0 + 1e-10, &tolerant, &k, &t);
+        CHECK(r == INTERP_NOT_ATTAINED, "tolerant, increasing: beyond nodeTol and the band still fails (status %d)", r);
+        /* A steep last segment: the edge band covers the same target, as before. */
+        L = makeLine(fd, 4);
+        k = -1; t = -1.0;
+        r = interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, 0.5 - e, &tolerant, &k, &t);
+        CHECK(r == INTERP_SUCCESS && k == 2 && t == 1.0, "tolerant, decreasing, steep last segment: edge band (status %d, k=%d, t=%g)", r, k, t);
+        /* Mirror image of the first case: a decreasing line ending in a nearly flat segment, target below the last node. */
+        {
+            const double g[4] = { 2.0, 1.5, 1.0 + d, 1.0 };
+            L = makeLine(g, 4);
+            k = -1; t = -1.0;
+            r = interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, 1.0 - e, &tolerant, &k, &t);
+            CHECK(r == INTERP_SUCCESS && k == 2 && t == 1.0, "tolerant, decreasing: roundoff below the last node (status %d, k=%d, t=%g)", r, k, t);
+        }
+        /* The first node, for comparison, was always covered by the scan (k = 0). */
+        {
+            const double h[4] = { 1.0, 1.0 + d, 1.5, 2.0 };
+            L = makeLine(h, 4);
+            k = -1; t = -1.0;
+            r = interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, 1.0 - e, &tolerant, &k, &t);
+            CHECK(r == INTERP_SUCCESS && k == 0 && t == 0.0, "tolerant: roundoff below the first node (status %d, k=%d, t=%g)", r, k, t);
+        }
+    }
+    /*
+     * Infinite and NaN targets, on increasing and decreasing lines, a non-monotonic line and a line
+     * with a nearly flat last segment (where the node tolerance is the widest band). Strict mode
+     * inverts increasing lines only, so it is checked on those.
+     */
+    {
+        static const double inc[4] = { 1.0, 2.0, 3.0, 4.0 }, dec[4] = { 4.0, 3.0, 2.0, 1.0 };
+        static const double dip[5] = { 1.0, 3.0, 0.5, 2.0, 4.0 }, flat[4] = { 0.5, 0.8, 1.0 - 1e-9, 1.0 };
+        const double *lines[4] = { inc, dec, dip, flat };
+        static const int nLine[4] = { 4, 4, 5, 4 };
+        static const char *name[4] = { "increasing", "decreasing", "non-monotonic", "flat last segment" };
+        int m, s;
+        for (m = 0; m < 4; m++) {
+            INTERPGRID L = makeLine(lines[m], nLine[m]);
+            for (s = -1; s <= 1; s += 2) {
+                const double target = s * INFINITY;
+                k = -7; t = -7.0;
+                r = interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, target, &tolerant, &k, &t);
+                CHECK(r == INTERP_NOT_ATTAINED && k == -7 && t == -7.0, "tolerant, %s line, target %cinf: status %d, k=%d, t=%g",
+                      name[m], s > 0 ? '+' : '-', r, k, t);
+                if (m == 0 || m == 3) {
+                    k = -7; t = -7.0;
+                    r = interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, target, &strict, &k, &t);
+                    CHECK(r == (s > 0 ? INTERP_ABOVE : INTERP_BELOW) && k == -7 && t == -7.0, "strict, %s line, target %cinf: status %d",
+                          name[m], s > 0 ? '+' : '-', r);
+                }
+            }
+            k = -7; t = -7.0;
+            r = interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, NAN, &tolerant, &k, &t);
+            CHECK(r == INTERP_INVALID && k == -7 && t == -7.0, "tolerant, %s line, NaN target: status %d", name[m], r);
+        }
+        /* Through the grid functions, as the consumers call them (T(rho, u), rho(P, T)). */
+        {
+            INTERPCELL c = { -7, -7, -7.0, -7.0 };
+            double v = -7.0;
+            const double x = xAxis[7] * 1.37, y = yAxis[5] * 1.21;
+            CHECK(interpInvertY(&G, zMono, x, INFINITY, 0.0, &tolerant, &c, &v) == INTERP_NOT_ATTAINED, "interpInvertY tolerant, +inf");
+            CHECK(interpInvertY(&G, zMono, x, -INFINITY, 0.0, &tolerant, &c, &v) == INTERP_NOT_ATTAINED, "interpInvertY tolerant, -inf");
+            CHECK(interpInvertX(&G, zMono, y, INFINITY, 0.0, &tolerant, &c, &v) == INTERP_NOT_ATTAINED, "interpInvertX tolerant, +inf");
+            CHECK(interpInvertX(&G, zMono, y, -INFINITY, 0.0, &tolerant, &c, &v) == INTERP_NOT_ATTAINED, "interpInvertX tolerant, -inf");
+            CHECK(interpInvertY(&G, zMono, x, INFINITY, 0.0, &strict, &c, &v) == INTERP_ABOVE, "interpInvertY strict, +inf");
+            CHECK(interpInvertY(&G, zMono, x, -INFINITY, 0.0, &strict, &c, &v) == INTERP_BELOW, "interpInvertY strict, -inf");
+            CHECK(interpInvertX(&G, zMono, y, NAN, 0.0, &tolerant, &c, &v) == INTERP_INVALID, "interpInvertX tolerant, NaN");
+            CHECK(c.ix == -7 && c.iy == -7 && c.u == -7.0 && c.v == -7.0 && v == -7.0, "outputs touched for a non-finite target");
+        }
+    }
+    /*
+     * Random non-monotonic lines (random walks, some with plateaus): every target between the end
+     * nodes is a root in both modes; every target outside them fails in strict mode with the right
+     * code, and in tolerant mode is either found exactly or reported INTERP_NOT_ATTAINED.
+     */
+    {
+        int nBetween = 0, nOutside = 0;
+        for (n = 0; n < 20000; n++) {
+            double f[LINE_NMAX], lo, hi, target;
+            int m = 2 + (int) (frand() * (LINE_NMAX - 2)), j, bPlateau = (n % 5 == 0);
+            INTERPGRID L;
+            f[0] = frand();
+            for (j = 1; j < m; j++) f[j] = bPlateau ? f[j-1] + floor(3.0 * frand()) - 1.0 : f[j-1] + frand() - 0.4;
+            L = makeLine(f, m);
+            lo = fmin(f[0], f[m-1]); hi = fmax(f[0], f[m-1]);
+            target = (n % 3 == 0) ? f[(int) (frand() * m)] : lo - 1.0 + (hi - lo + 2.0) * frand();
+            /* Strict mode clamps a target within valTol*(1 + |target|) outside [min, max] of the end nodes onto that end. */
+            const double eps = strict.valTol * (1.0 + fabs(target));
+            const double tc = (target < lo && target >= lo - eps) ? lo : (target > hi && target <= hi + eps) ? hi : target;
+            if (f[0] <= tc && tc <= f[m-1]) {
+                nBetween++;
+                r = interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, target, &strict, &k, &t);
+                CHECK(r == INTERP_SUCCESS && fabs(lineAt(&L, k, t) - target) <= 1e-12 * (1.0 + fabs(target)), "strict, end nodes bracket: status %d (line %d)", r, n);
+            } else {
+                nOutside++;
+                r = interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, target, &strict, &k, &t);
+                CHECK(r == (tc < f[0] ? INTERP_BELOW : INTERP_ABOVE), "strict, end nodes do not bracket: status %d (line %d)", r, n);
+            }
+            r = interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, target, &tolerant, &k, &t);
+            if (lo <= target && target <= hi)
+                CHECK(r == INTERP_SUCCESS && fabs(lineAt(&L, k, t) - target) <= 1e-12 * (1.0 + fabs(target)), "tolerant, end nodes bracket: status %d (line %d)", r, n);
+            else
+                CHECK(r == INTERP_NOT_ATTAINED || (r == INTERP_SUCCESS && fabs(lineAt(&L, k, t) - target) <= 1e-4 * (1.0 + fabs(target))),
+                      "tolerant, end nodes do not bracket: status %d (line %d)", r, n);
+            if (target == f[0]) {
+                r = interpInvertLine(&L, lineZ, INTERP_ALONG_Y, 0, 0.0, target, &tolerant, &k, &t);
+                CHECK(r == INTERP_SUCCESS && k == 0 && t == 0.0, "tolerant, target f_0: k=%d t=%g (line %d)", k, t, n);
+            }
+        }
+        CHECK(nBetween > 1000 && nOutside > 1000, "random lines: %d bracketed, %d not", nBetween, nOutside);
+    }
+    END_TEST();
+}
+
 static void testNodeDeriv(void)
 {
     int failsBefore = nFails;
@@ -410,19 +738,69 @@ static void testNodeDeriv(void)
     END_TEST();
 }
 
+/*
+ * The layout of the public types belongs to INTERP_ABI_VERSION (see interpBilinear.h): the
+ * consumers embed INTERPGRID in their material structs and check the number at compile time. The
+ * reference structs below spell out layout 1; a change of the public types without a bump of
+ * INTERP_ABI_VERSION (and of this reference) makes this test fail.
+ */
+#define LAYOUT_REFERENCE_ABI 1
+struct refGrid { int nx; int ny; const double *x; const double *y; };
+struct refCell { int ix; int iy; double u; double v; };
+struct refInvertOpt { int bFallback; double valTol; double edgeTol; double nodeTol; };
+
+static void testLayout(void)
+{
+    int failsBefore = nFails;
+    TEST("type layout matches INTERP_ABI_VERSION");
+    CHECK(INTERP_ABI_VERSION == LAYOUT_REFERENCE_ABI,
+          "INTERP_ABI_VERSION = %d, the layout reference in this test is for %d: update the reference", INTERP_ABI_VERSION, LAYOUT_REFERENCE_ABI);
+    if (INTERP_ABI_VERSION != LAYOUT_REFERENCE_ABI) { END_TEST(); return; }
+
+    CHECK(sizeof(INTERPGRID) == sizeof(struct refGrid), "sizeof(INTERPGRID) changed: bump INTERP_ABI_VERSION");
+    CHECK(offsetof(INTERPGRID, nx) == offsetof(struct refGrid, nx) && offsetof(INTERPGRID, ny) == offsetof(struct refGrid, ny) &&
+          offsetof(INTERPGRID, x) == offsetof(struct refGrid, x) && offsetof(INTERPGRID, y) == offsetof(struct refGrid, y),
+          "INTERPGRID member offsets changed: bump INTERP_ABI_VERSION");
+    CHECK(sizeof(((INTERPGRID *) 0)->nx) == sizeof(int) && sizeof(((INTERPGRID *) 0)->x) == sizeof(const double *), "INTERPGRID member types changed");
+
+    CHECK(sizeof(INTERPCELL) == sizeof(struct refCell), "sizeof(INTERPCELL) changed: bump INTERP_ABI_VERSION");
+    CHECK(offsetof(INTERPCELL, ix) == offsetof(struct refCell, ix) && offsetof(INTERPCELL, iy) == offsetof(struct refCell, iy) &&
+          offsetof(INTERPCELL, u) == offsetof(struct refCell, u) && offsetof(INTERPCELL, v) == offsetof(struct refCell, v),
+          "INTERPCELL member offsets changed: bump INTERP_ABI_VERSION");
+    CHECK(sizeof(((INTERPCELL *) 0)->ix) == sizeof(int) && sizeof(((INTERPCELL *) 0)->u) == sizeof(double), "INTERPCELL member types changed");
+
+    CHECK(sizeof(INTERPINVERTOPT) == sizeof(struct refInvertOpt), "sizeof(INTERPINVERTOPT) changed: bump INTERP_ABI_VERSION");
+    CHECK(offsetof(INTERPINVERTOPT, bFallback) == offsetof(struct refInvertOpt, bFallback) &&
+          offsetof(INTERPINVERTOPT, valTol) == offsetof(struct refInvertOpt, valTol) &&
+          offsetof(INTERPINVERTOPT, edgeTol) == offsetof(struct refInvertOpt, edgeTol) &&
+          offsetof(INTERPINVERTOPT, nodeTol) == offsetof(struct refInvertOpt, nodeTol),
+          "INTERPINVERTOPT member offsets changed: bump INTERP_ABI_VERSION");
+
+    /* The two option sets keep their member order (positional initialisers in the consumers). */
+    {
+        static const INTERPINVERTOPT s = INTERP_INVERT_STRICT, t = INTERP_INVERT_TOLERANT;
+        CHECK(s.bFallback == 0 && s.valTol == 1e-13 && s.edgeTol == 0.0 && s.nodeTol == 0.0, "INTERP_INVERT_STRICT");
+        CHECK(t.bFallback == 1 && t.valTol == 0.0 && t.edgeTol == 1e-4 && t.nodeTol == 1e-12, "INTERP_INVERT_TOLERANT");
+    }
+    END_TEST();
+}
+
 /* ------------------------------------------------------------------- main */
 
 int main(void)
 {
-    printf("interpBilinear %s test suite: synthetic %d x %d grid\n", INTERP_VERSION_TEXT, NX, NY);
+    printf("interpBilinear %s (type layout %d) test suite: synthetic %d x %d grid\n", INTERP_VERSION_TEXT, INTERP_ABI_VERSION, NX, NY);
     setupGrids();
 
+    testLayout();
     testLocate();
+    testLocateTol();
     testValue();
     testGradient();
     testNearest();
     testInvertRoundTrip();
     testInvertDefects();
+    testInvertLines();
     testNodeDeriv();
 
     printf("%d checks, %d failed\n", nChecks, nFails);

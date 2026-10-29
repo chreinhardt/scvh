@@ -38,11 +38,17 @@
  * -DEOSLIB_VERBOSE the library prints a diagnostic for every failed lookup,
  * so messages are expected there.
  */
+/* fork() and waitpid() for the fatal paths (POSIX). */
+#define _POSIX_C_SOURCE 200809L
 #include <float.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
+#include <unistd.h>
+#include <fcntl.h>   /* open in scvheosInitQuiet */
+#include <sys/wait.h>
 #include "scvheos.h"
 
 /* ---------------------------------------------------------------- harness */
@@ -483,6 +489,13 @@ static void testSoundSpeedTable(SCVHEOSMAT *m)
             }
         }
     if (nFloor) NOTE("%d interior nodes carry the cs^2 = P/rho floor (table defect)", nFloor);
+    /* Argument checks: a NULL material is rejected before any dereference, and an
+     * existing table is not regenerated (or leaked). */
+    CHECK(scvheosGenerateSoundSpeedTable(NULL) == SCVHEOS_FAIL, "NULL material must be rejected");
+    {
+        double *c0 = m->dLogCArray;
+        CHECK(scvheosGenerateSoundSpeedTable(m) == SCVHEOS_FAIL && m->dLogCArray == c0, "existing sound-speed table must not be regenerated");
+    }
     END_TEST();
 }
 
@@ -541,6 +554,44 @@ static void testIsentrope(SCVHEOSMAT *m)
             }
         }
     }
+    /*
+     * A start point above the u column: the isentrope starts from the top row s(rho1, T_max), the
+     * same isentrope as from u(rho1, T_max) itself, counted once (up to scvheos 1.3.0 it started
+     * from the T_min fallback and u2 was the cold curve at rho2). Below the cold curve (and for
+     * u1 <= 0) it starts from s(rho1, T_min), the isentrope from the cold curve.
+     */
+    {
+        static const double fac[5] = {1.0 / 5.0, 1.0 / 1.2, 1.0, 1.2, 5.0};
+        const double Tmax = tenpow(m->LogTMax), Tmin = tenpow(m->LogTMin);
+        int nTested = 0;
+        for (int a = 1; a < NSAMPLE_RHO - 1; a += 7) {
+            double lr1 = sampleLogRho(m, a), rho1 = tenpow(lr1);
+            int j1 = findCell(m->dLogRhoAxis, m->nRho, lr1);
+            if (!monotonicInColumn(m, m->dLogUArray, j1) || !monotonicInColumn(m, m->dLogSArray, j1)) continue;
+            double uTop = scvheosUofRhoT(m, rho1, Tmax), uCold = scvheosUofRhoT(m, rho1, Tmin);
+            const double u1s[3] = { 2.0 * uTop, 0.5 * uCold, -1.0 };
+            const double uRef1[3] = { uTop, uCold, uCold };
+            CHECK(scvheosIsInExtrapLimit(m, rho1, u1s[0]) == SCVHEOS_OUTSIDE_TMAX, "u above the column at rho=%g", rho1);
+            for (int f = 0; f < 5; f++) {
+                double rho2 = fac[f] * rho1;
+                if (log10(rho2) < m->LogRhoMin || log10(rho2) > m->LogRhoMax) continue;
+                for (int q = 0; q < 3; q++) {
+                    double uRef = scvheosIsentropicU(m, rho1, uRef1[q], rho2);
+                    long nf = m->nLookupFail;
+                    double u2 = scvheosIsentropicU(m, rho1, u1s[q], rho2);
+                    CHECK(m->nLookupFail == nf + 1, "isentrope from u1=%g outside the column counted %ld times (rho=%g->%g)", u1s[q], m->nLookupFail - nf, rho1, rho2);
+                    CHECK(!isSentinel(u2), "isentrope from u1=%g outside the column failed (rho=%g->%g)", u1s[q], rho1, rho2);
+                    CHECK_REL(u2, uRef, 1e-12, "isentrope from u1=%g = isentrope from the column end (rho=%g->%g)", u1s[q], rho1, rho2);
+                    if (f == 2) CHECK_REL(u2, uRef1[q], 1e-9, "isentrope from u1=%g to the same rho is the column end (rho=%g)", u1s[q], rho1);
+                }
+                CHECK(scvheosIsentropicU(m, rho1, u1s[0], rho2) > scvheosUofRhoT(m, rho2, Tmin) * (1.0 + 1e-12),
+                      "isentrope from above the column on the cold curve (rho=%g->%g)", rho1, rho2);
+                nTested++;
+            }
+        }
+        CHECK(nTested > 0, "no isentrope from outside the column was tested");
+        NOTE("%d isentropes started outside the u column", nTested);
+    }
     m->nLookupFail = nf0;
     if (nSkipped) NOTE("%d isentrope checks skipped (non-monotonic column, table defect)", nSkipped);
     END_TEST();
@@ -572,6 +623,12 @@ static void testExtrapLimit(SCVHEOSMAT *m)
     CHECK(scvheosIsInExtrapLimit(m, rhoOk, -1.0) == SCVHEOS_OUTSIDE_TMIN, "negative u");
     CHECK(scvheosIsInExtrapLimit(m, rhoOk, 0.0) == SCVHEOS_OUTSIDE_TMIN, "zero u");
     CHECK(scvheosIsInExtrapLimit(m, rhoOk, NAN) == SCVHEOS_OUTSIDE_TMIN, "NaN u");
+    /* +inf by the side it lies on (it was RHOMIN and TMIN), -inf and NaN rho below. */
+    CHECK(scvheosIsInExtrapLimit(m, INFINITY, uOk) == SCVHEOS_OUTSIDE_RHOMAX, "+inf rho");
+    CHECK(scvheosIsInExtrapLimit(m, NAN, uOk) == SCVHEOS_OUTSIDE_RHOMIN, "NaN rho");
+    CHECK(scvheosIsInExtrapLimit(m, rhoOk, INFINITY) == SCVHEOS_OUTSIDE_TMAX, "+inf u");
+    CHECK(scvheosIsInExtrapLimit(m, rhoOk, -INFINITY) == SCVHEOS_OUTSIDE_TMIN, "-inf u");
+    CHECK(scvheosIsInExtrapLimit(m, INFINITY, NAN) == SCVHEOS_OUTSIDE_RHOMAX, "rho checked before u");
     /* Consistency: anything the status accepts must evaluate without a sentinel. */
     for (int a = 0; a < NSAMPLE_RHO; a++) for (int b = 0; b < NSAMPLE_T; b++) {
         double lr = sampleLogRho(m, a);
@@ -585,6 +642,140 @@ static void testExtrapLimit(SCVHEOSMAT *m)
         } else {
             CHECK(0, "in-table state rejected at rho=%g u=%g", rho, u);
         }
+    }
+    END_TEST();
+}
+
+/* The cold curve accessor EOSlib uses: u(rho, T_min) on the first T row, the sentinel (counted) outside. */
+/*
+ * The bounds checks agree exactly with the (logrho, logT) lookups, including the edge tolerance:
+ * on the edges and inside the band SCVHEOS_EDGE_TOL*|b| + SCVHEOS_EDGE_TOL_ABS they are TRUE and the
+ * lookups succeed, beyond it both reject (up to 1.3.0 the checks had no tolerance and reported a
+ * state on the edge after the code <-> cgs round trip as outside). Not counted.
+ */
+static void testBoundsChecks(SCVHEOSMAT *m)
+{
+    int failsBefore = nFails;
+    TEST("scvheosCheck(Table)BoundsLogRhoLogT");
+    const double lr[2] = { m->dLogRhoAxis[0], m->dLogRhoAxis[m->nRho-1] };
+    const double lt[2] = { m->dLogTAxis[0], m->dLogTAxis[m->nT-1] };
+    const double lrMid = 0.5 * (lr[0] + lr[1]), ltMid = 0.5 * (lt[0] + lt[1]);
+    long nf0 = m->nLookupFail;
+    int nIn = 0, nOut = 0;
+    /* Offsets in units of the tolerance band of the bound: inside the band, on its edge, beyond it. */
+    static const double f[7] = { -1e3, -2.0, -0.5, 0.0, 0.5, 2.0, 1e3 };
+    for (int e = 0; e < 2; e++) for (int k = 0; k < 7; k++) for (int axis = 0; axis < 2; axis++) {
+        const double b = axis ? lt[e] : lr[e];
+        const double band = SCVHEOS_EDGE_TOL * fabs(b) + SCVHEOS_EDGE_TOL_ABS;
+        const double out = e ? +1.0 : -1.0;              /* direction out of the table */
+        const double x = b + out * f[k] * band;
+        const double logrho = axis ? lrMid : x, logT = axis ? x : ltMid;
+        int st = scvheosCheckTableBoundsLogRhoLogT(m, logrho, logT);
+        CHECK(st == scvheosCheckBoundsLogRhoLogT(m, logrho, logT), "the two checks differ at logrho=%.17g logT=%.17g", logrho, logT);
+        long nf = m->nLookupFail;
+        double lP = scvheosLogPofLogRhoLogT(m, logrho, logT);
+        int bLookup = !isSentinel(lP);
+        m->nLookupFail = nf;
+        CHECK((st == TRUE) == bLookup, "check %d but the lookup %s at logrho=%.17g logT=%.17g (offset %g band)",
+              st, bLookup ? "succeeds" : "fails", logrho, logT, f[k]);
+        /* Inside the table, on the bound and within the band: inside. Clearly beyond it: outside. */
+        if (f[k] <= 0.5) CHECK(st == TRUE, "rejected at offset %g band (logrho=%.17g logT=%.17g)", f[k], logrho, logT);
+        if (f[k] >= 2.0) CHECK(st == FALSE, "accepted at offset %g band (logrho=%.17g logT=%.17g)", f[k], logrho, logT);
+        if (st == TRUE) nIn++; else nOut++;
+    }
+    /* The edges after the linear <-> log round trip, as the (rho, T) functions see them. */
+    for (int e = 0; e < 2; e++) {
+        CHECK(scvheosCheckTableBoundsLogRhoLogT(m, log10(tenpow(lr[e])), ltMid) == TRUE, "rho edge %d after the round trip", e);
+        CHECK(scvheosCheckTableBoundsLogRhoLogT(m, lrMid, log10(tenpow(lt[e]))) == TRUE, "T edge %d after the round trip", e);
+    }
+    CHECK(scvheosCheckTableBoundsLogRhoLogT(m, NAN, ltMid) == FALSE, "NaN logrho");
+    CHECK(scvheosCheckTableBoundsLogRhoLogT(m, lrMid, NAN) == FALSE, "NaN logT");
+    CHECK(scvheosCheckBoundsLogRhoLogT(m, -INFINITY, ltMid) == FALSE, "logrho = -inf (rho = 0)");
+    CHECK(m->nLookupFail == nf0, "bounds checks counted %ld times", m->nLookupFail - nf0);
+    CHECK(nIn > 0 && nOut > 0, "bounds checks not exercised (%d in, %d out)", nIn, nOut);
+    m->nLookupFail = nf0;
+    END_TEST();
+}
+
+static void testUCold(SCVHEOSMAT *m)
+{
+    int failsBefore = nFails;
+    TEST("scvheosUCold");
+    long nf0 = m->nLookupFail;
+    for (int a = 0; a < NSAMPLE_RHO; a++) {
+        double lr = sampleLogRho(m, a), rho = tenpow(lr);
+        /* The reference goes through 10^x <-> log10 round trips (also of T_min), each losing
+         * |log10 u| ln10 eps; u reaches 1e-42 in code units in the real tables (cold dense corner).
+         * scvheosUCold reads the first row directly and is the more exact of the two. */
+        double uref = scvheosUofRhoT(m, rho, tenpow(m->LogTMin));
+        double tol = 1e-14 + 16.0 * DBL_EPSILON * 2.302585092994046 * (1.0 + fabs(log10(uref)));
+        CHECK_REL(scvheosUCold(m, rho), uref, tol, "UCold = u(rho, T_min) at rho=%g", rho);
+        CHECK_ABS(log10(scvheosUCold(m, rho)), bilinear(m, m->dLogUArray, lr, m->LogTMin), 1e-12, "UCold on the first row at logrho=%g", lr);
+    }
+    CHECK_REL(scvheosUCold(m, tenpow(m->LogRhoMax)), tenpow(LOGU(m, m->nRho - 1, 0)), 1e-12, "UCold at the last node");
+    CHECK(m->nLookupFail == nf0, "in-table UCold counted");
+    CHECK(scvheosFailed(scvheosUCold(m, 2.0 * tenpow(m->LogRhoMax))), "UCold above rhoMax");
+    CHECK(scvheosFailed(scvheosUCold(m, -1.0)), "UCold for rho < 0");
+    CHECK(m->nLookupFail == nf0 + 2, "UCold failures counted (%ld -> %ld)", nf0, m->nLookupFail);
+    m->nLookupFail = nf0;
+    END_TEST();
+}
+
+/*
+ * scvheosReadTable needs two nodes on each axis (one cell): nRho or nT below 2 is rejected before
+ * the file is read, like reos3ReadTable (up to scvheos 1.3.0 it was accepted, and the grid of a
+ * single node has no cell). scvheosPrintMat prints rho0 in cgs with the unit (it printed the
+ * code-unit value unlabelled) and the table boundaries as linear values in g/cc and K (log10
+ * values without a unit).
+ */
+static void testReadTableSizeAndPrint(SCVHEOSMAT *m)
+{
+    int failsBefore = nFails;
+    TEST("table size check, rho0 in PrintMat");
+    static const int sizes[3][2] = { {1, 76}, {460, 1}, {0, 0} };
+    for (int k = 0; k < 3; k++) {
+        SCVHEOSMAT *t = (SCVHEOSMAT *) calloc(1, sizeof(SCVHEOSMAT));
+        /* The expected message goes to /dev/null. */
+        fflush(stderr);
+        int err = dup(2), devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) { dup2(devnull, 2); close(devnull); }
+        int r = scvheosReadTable(t, "scvh_extended_dt_hydrogen_722_helium_278.data", sizes[k][0], sizes[k][1], 1);
+        fflush(stderr);
+        if (err >= 0) { dup2(err, 2); close(err); }
+        CHECK(r == SCVHEOS_FAIL, "scvheosReadTable with nRho= %d nT= %d returned %d", sizes[k][0], sizes[k][1], r);
+        CHECK(t->dLogRhoAxis == NULL && t->dLogTAxis == NULL && t->dLogUArray == NULL, "nothing allocated for nRho= %d nT= %d", sizes[k][0], sizes[k][1]);
+        free(t);
+    }
+    {
+        FILE *fp = tmpfile();
+        char line[512];
+        double rho0 = -1.0, rhoMin = -1.0;
+        int bRho0Unit = 0, bBoundsUnit = 0;
+        CHECK(fp != NULL, "tmpfile");
+        if (fp != NULL) {
+            scvheosPrintMat(m, fp);
+            rewind(fp);
+            while (fgets(line, sizeof(line), fp) != NULL) {
+                const char *p = strstr(line, "rho0 (cgs units):");
+                if (p != NULL) {
+                    char *end;
+                    rho0 = strtod(p + strlen("rho0 (cgs units):"), &end);
+                    bRho0Unit = (strncmp(end, " g/cc", 5) == 0);
+                }
+                p = strstr(line, "minRho = ");
+                if (p != NULL) {
+                    char *end;
+                    rhoMin = strtod(p + strlen("minRho = "), &end);
+                    bBoundsUnit = (strncmp(end, " g/cc", 5) == 0) && strstr(line, " K") != NULL;
+                }
+            }
+            fclose(fp);
+        }
+        CHECK_REL(rho0, m->rho0 * m->dGmPerCcUnit, 1e-5, "scvheosPrintMat: rho0 (cgs units)");
+        CHECK(bRho0Unit, "scvheosPrintMat: rho0 without \" g/cc\"");
+        /* The table boundaries as linear values with the unit, like reos3PrintMat and ANEOSPrintMat (they were log10 values without one). */
+        CHECK_REL(rhoMin, pow(10.0, m->dLogRhoAxis[0]) * m->dGmPerCcUnit, 1e-5, "scvheosPrintMat: minRho (cgs units)");
+        CHECK(bBoundsUnit, "scvheosPrintMat: table boundaries without g/cc and K");
     }
     END_TEST();
 }
@@ -672,13 +863,239 @@ static void testFailureContract(SCVHEOSMAT *m)
     END_TEST();
 }
 
+/*
+ * Initialise a material with the unit pair (dKpcUnit, dMsolUnit) in a child process. Returns 0 if
+ * the library accepted it, 1 if it stopped the program (assert(0), or exit(1) with -DNDEBUG), -1
+ * for anything else.
+ */
+static int initUnitsRejected(int iMat, double dKpcUnit, double dMsolUnit)
+{
+    fflush(NULL);
+    pid_t pid = fork();
+    if (pid == 0) {
+        if (freopen("/dev/null", "w", stderr) == NULL) _exit(3);   /* the expected diagnostic */
+        SCVHEOSMAT *m = scvheosInitMaterial(iMat, dKpcUnit, dMsolUnit);
+        scvheosFinalizeMaterial(m);
+        _exit(0);
+    }
+    int status = 0;
+    if (pid < 0 || waitpid(pid, &status, 0) != pid) return -1;
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 0) return 0;
+    if ((WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT) || (WIFEXITED(status) && WEXITSTATUS(status) == 1)) return 1;
+    return -1;
+}
+
+/*
+ * One rule for the unit pair in EOSlib and every sublibrary: both units > 0 (and finite) are code
+ * units, both <= 0 is cgs, anything else is fatal. (Before, exactly one unit <= 0 made igeos divide
+ * by zero, Tillotson assert, and ANEOS, SCvH and REOS3 silently use cgs.)
+ */
+static void testUnitPair(int iMat)
+{
+    int failsBefore = nFails;
+    TEST("unit pair: code units, cgs or fatal");
+    static const struct { double dKpcUnit, dMsolUnit; int bRejected; const char *what; } cases[] = {
+        {2.06701e-13, 4.80438e-08, 0, "both > 0: code units"},
+        {0.0, 0.0, 0, "both 0: cgs"},
+        {-1.0, -1.0, 0, "both < 0: cgs"},
+        {0.0, -1.0, 0, "0 and < 0: cgs"},
+        {2.06701e-13, 0.0, 1, "dMsolUnit = 0 only"},
+        {0.0, 4.80438e-08, 1, "dKpcUnit = 0 only"},
+        {-1.0, 4.80438e-08, 1, "dKpcUnit < 0 only"},
+        {2.06701e-13, NAN, 1, "dMsolUnit NaN"},
+        {INFINITY, 4.80438e-08, 1, "dKpcUnit inf"},
+        {NAN, NAN, 1, "both NaN"},
+    };
+    for (size_t k = 0; k < sizeof(cases) / sizeof(cases[0]); k++) {
+        int r = initUnitsRejected(iMat, cases[k].dKpcUnit, cases[k].dMsolUnit);
+        CHECK(r == cases[k].bRejected, "%s: %s (got %d)", cases[k].what, cases[k].bRejected ? "must be fatal" : "must be accepted", r);
+    }
+    END_TEST();
+}
+
 /* ------------------------------------------------------------------- main */
+
+/*
+ * The border strips of the table: the first and last density cell over all temperature cells, and
+ * the first and last temperature cell over all density cells. The interior tests sample 5..95% of
+ * the log axes and never reach them (an error confined to an edge cell, like the last-cell bug of
+ * ANEOSRhoofPU up to ANEOSmaterial 1.2.0, would go unnoticed). Per point at off-grid fractions of
+ * the cell, in log space:
+ *   - P, u, cs (and s) are 10^(bilinear value of the log table in the cell);
+ *   - P, cs, T of the fused lookup equal the separate (rho, u) calls bit for bit;
+ *   - T(rho, u) is a root of u(rho, T) = u, and T itself where the u column is monotonic (tolerance
+ *     from the cell's dlogu/dlogT); on a non-monotonic column T(rho, u) may be another root, or a
+ *     counted T_min fallback where u lies outside [u(T_min), u(T_max)] of the column (a dip of
+ *     u(T) below the cold row);
+ *   - rho(P, T) reproduces P where the P row is monotonic;
+ *   - no other in-table lookup counts a failure.
+ */
+static void testEdgeCells(SCVHEOSMAT *m)
+{
+    int failsBefore = nFails;
+    TEST("edge cells: first and last rho and T cells");
+    static const double frac[3] = { 0.31, 0.53, 0.77 };
+    const double eps = DBL_EPSILON, ln10 = 2.302585092994045684;
+    long nPoints = 0, nNonMono = 0, nFallback = 0, nOtherRoot = 0;
+
+    for (int strip = 0; strip < 4; strip++) {
+        const int nAlong = (strip < 2) ? m->nT - 1 : m->nRho - 1;
+        const int stride = nAlong / 300 + 1;
+        for (int k = 0; k < nAlong; k += stride) {
+            const int j = (strip == 0) ? 0 : (strip == 1) ? m->nRho - 2 : k;   /* rho cell */
+            const int i = (strip == 2) ? 0 : (strip == 3) ? m->nT - 2 : k;     /* T cell */
+            const int bUMono = monotonicInColumn(m, m->dLogUArray, j);
+            for (int fx = 0; fx < 3; fx++) for (int fy = 0; fy < 3; fy++) {
+                const double lr = m->dLogRhoAxis[j] + frac[fx] * (m->dLogRhoAxis[j+1] - m->dLogRhoAxis[j]);
+                const double lt = m->dLogTAxis[i] + frac[fy] * (m->dLogTAxis[i+1] - m->dLogTAxis[i]);
+                const double rho = tenpow(lr), T = tenpow(lt);
+                /* The roundoff of a value through 10^x and log10: |log10 f| ln10 eps per operation. */
+                const double lscale = fabs(lr) + fabs(lt) + 1.0;
+                long nf = m->nLookupFail;
+                nPoints++;
+
+                double P = scvheosPofRhoT(m, rho, T), u = scvheosUofRhoT(m, rho, T), cs = scvheosCsofRhoT(m, rho, T);
+                const double lP = bilinear(m, m->dLogPArray, lr, lt), lu = bilinear(m, m->dLogUArray, lr, lt), lc = bilinear(m, m->dLogCArray, lr, lt);
+                CHECK(!isSentinel(P) && fabs(P / tenpow(lP) - 1.0) <= 64 * eps * ln10 * (lscale + fabs(lP)), "P in edge cell (%d,%d): %.17g vs %.17g", j, i, P, tenpow(lP));
+                CHECK(!isSentinel(u) && fabs(u / tenpow(lu) - 1.0) <= 64 * eps * ln10 * (lscale + fabs(lu)), "u in edge cell (%d,%d): %.17g vs %.17g", j, i, u, tenpow(lu));
+                CHECK(!isSentinel(cs) && fabs(cs / tenpow(lc) - 1.0) <= 64 * eps * ln10 * (lscale + fabs(lc)), "cs in edge cell (%d,%d)", j, i);
+                {
+                    double S = scvheosSofRhoT(m, rho, T); const double ls = bilinear(m, m->dLogSArray, lr, lt);
+                    CHECK(!isSentinel(S) && fabs(S / tenpow(ls) - 1.0) <= 64 * eps * ln10 * (lscale + fabs(ls)), "s in edge cell (%d,%d)", j, i);
+                }
+                CHECK(m->nLookupFail == nf, "forward lookups in edge cell (%d,%d) counted", j, i);
+
+                /* The fused lookup and the separate calls. */
+                nf = m->nLookupFail;
+                double cf, Tf, Pf = scvheosPCTofRhoU(m, rho, u, &cf, &Tf);
+                const long nfscvheosPCTofRhoU = m->nLookupFail - nf;
+                CHECK(Pf == scvheosPofRhoU(m, rho, u) && cf == scvheosCsofRhoU(m, rho, u) && Tf == scvheosTofRhoU(m, rho, u),
+                      "scvheosPCTofRhoU vs separate calls in edge cell (%d,%d): P %.17g/%.17g T %.17g/%.17g", j, i, Pf, scvheosPofRhoU(m, rho, u), Tf, scvheosTofRhoU(m, rho, u));
+
+                /* T(rho, u): a root, T itself on a monotonic column, else possibly a counted fallback. */
+                if (nfscvheosPCTofRhoU == 0) {
+                    const double u2 = scvheosUofRhoT(m, rho, Tf);
+                    CHECK(fabs(u2 / u - 1.0) <= 256 * eps * ln10 * (lscale + fabs(lu)), "u(rho, T(rho, u)) in edge cell (%d,%d): T = %g, T(rho, u) = %g", j, i, T, Tf);
+                    if (bUMono) {
+                        /* dlogT = dlogu / (dlogu/dlogT of the cell). */
+                        const double w = frac[fx];
+                        const double slope = fabs(((1.0 - w) * (m->dLogUArray[(size_t)j * m->nT + i + 1] - m->dLogUArray[(size_t)j * m->nT + i])
+                                                   + w * (m->dLogUArray[(size_t)(j+1) * m->nT + i + 1] - m->dLogUArray[(size_t)(j+1) * m->nT + i]))
+                                                  / (m->dLogTAxis[i+1] - m->dLogTAxis[i]));
+                        CHECK(fabs(Tf / T - 1.0) <= 256 * eps * ln10 * (lscale + fabs(lu)) * (1.0 + 1.0 / slope), "T(rho, u) in edge cell (%d,%d): %.17g vs %.17g", j, i, Tf, T);
+                    } else if (fabs(Tf / T - 1.0) > 1e-6) {
+                        nOtherRoot++;
+                    }
+                } else {
+                    CHECK(!bUMono, "T(rho, u) fell back on a monotonic column in edge cell (%d,%d)", j, i);
+                    CHECK(nfscvheosPCTofRhoU == 1, "fallback counted %ld times in edge cell (%d,%d)", nfscvheosPCTofRhoU, j, i);
+                    nFallback++;
+                }
+                if (!bUMono) nNonMono++;
+
+                /* rho(P, T) on a monotonic row. */
+                if (pressureMonotonicInRow(m, i)) {
+                    nf = m->nLookupFail;
+                    double rP = scvheosRhoofPT(m, P, T);
+                    CHECK(!isSentinel(rP) && m->nLookupFail == nf, "rho(P,T) failed in edge cell (%d,%d)", j, i);
+                    if (!isSentinel(rP)) CHECK(fabs(scvheosPofRhoT(m, rP, T) / P - 1.0) <= 1e-10, "P(rho(P,T),T) in edge cell (%d,%d)", j, i);
+                }
+                m->nLookupFail = nf;
+            }
+        }
+    }
+    if (nNonMono)
+        NOTE("%ld of %ld edge-cell states on a non-monotonic u column (table defect): %ld T_min fallbacks, %ld other roots",
+             nNonMono, nPoints, nFallback, nOtherRoot);
+    END_TEST();
+}
+
+/*
+ * Edge tolerance at a log bound near 0. The code-unit shift of log rho is arbitrary, so a unit pair can
+ * put the end of the log rho axis at (or within roundoff of) 0, where a tolerance relative to the
+ * bound alone is zero. A state on the table edge, converted from cgs to code units as a hydro code
+ * holds it, lands a few ulps off the bound (absolute ~1e-16 after log10) and failed up to scvheos
+ * 1.3.0 for about half the unit pairs (92 of 201 below). The band is SCVHEOS_EDGE_TOL*|bound| +
+ * SCVHEOS_EDGE_TOL_ABS. Both ends of the rho axis; a density clearly outside still fails.
+ */
+/* scvheosInitMaterial reports its table checks on stderr; quiet for the 402 materials below. */
+static SCVHEOSMAT *scvheosInitQuiet(int iMat, double dKpcUnit, double dMsolUnit)
+{
+    fflush(stdout); fflush(stderr);
+    int out = dup(1), err = dup(2), devnull = open("/dev/null", O_WRONLY);
+    if (devnull >= 0) { dup2(devnull, 1); dup2(devnull, 2); close(devnull); }
+    SCVHEOSMAT *m = scvheosInitMaterial(iMat, dKpcUnit, dMsolUnit);
+    fflush(stdout); fflush(stderr);
+    if (out >= 0) { dup2(out, 1); close(out); }
+    if (err >= 0) { dup2(err, 2); close(err); }
+    return m;
+}
+
+static void testLogBoundAtZero(int iMat, double dKpcUnit, double dMsolUnit)
+{
+    int failsBefore = nFails;
+    TEST("edge tolerance at a log rho bound of 0");
+    SCVHEOSMAT *m0 = scvheosInitQuiet(iMat, dKpcUnit, dMsolUnit);
+    const double g0 = m0->dGmPerCcUnit;
+    const double logRhoEdgeCGS[2] = { m0->dLogRhoAxis[0] + log10(g0), m0->dLogRhoAxis[m0->nRho-1] + log10(g0) };
+    const double T = pow(10.0, 0.5 * (m0->dLogTAxis[0] + m0->dLogTAxis[m0->nT-1]));
+    int nFailed[2] = {0, 0}, nTried = 0, nDefect = 0;
+    scvheosFinalizeMaterial(m0);
+
+    for (int end = 0; end < 2; end++) {
+        for (int k = -100; k <= 100; k++) {
+            /* dGmPerCcUnit is proportional to dMsolUnit: this puts the axis end at ~0 in code units. */
+            double M = dMsolUnit * pow(10.0, logRhoEdgeCGS[end]) / g0 * (1.0 + k * 1e-15);
+            SCVHEOSMAT *m = scvheosInitQuiet(iMat, dKpcUnit, M);
+            const double bound = end ? m->dLogRhoAxis[m->nRho-1] : m->dLogRhoAxis[0];
+            const double rho = pow(10.0, logRhoEdgeCGS[end]) / m->dGmPerCcUnit;   /* the edge, from cgs */
+            CHECK(fabs(bound) < 1e-12, "axis end %g not near 0 (k = %d)", bound, k);
+            /* The forward lookups at the edge decide whether the edge state is accepted. */
+            double P = scvheosPofRhoT(m, rho, T);
+            double s = scvheosSofRhoT(m, rho, T);
+            double u = scvheosUofRhoT(m, rho, T);
+            if (isSentinel(P) || isSentinel(s) || isSentinel(u)) {
+                nFailed[end]++;
+            } else {
+                /*
+                 * T(rho, u) on the edge column. On a monotonic column it is a root of u(rho, T) = u and
+                 * involves no fallback. The real SCvH table has columns at the rho edges where u(T) is
+                 * not monotonic: there the strict inversion may find another root than T (still a root),
+                 * or u lies outside [u(T_min), u(T_max)] of the column (a dip below the cold row) and T
+                 * falls back to T_min (counted); both are the documented behaviour for a table defect,
+                 * not an edge rejection.
+                 */
+                const int ixEdge = end ? m->nRho - 1 : 0;
+                const int bMonotonic = (interpNodeLineMonotonic(&m->grid, m->dLogUArray, INTERP_ALONG_Y, ixEdge) == 0);
+                long nf = m->nLookupFail;
+                double Tu = scvheosTofRhoU(m, rho, u);
+                if (m->nLookupFail == nf) {
+                    CHECK_REL(scvheosUofRhoT(m, rho, Tu), u, 1e-9, "u(rho, T(rho, u)) at the edge (end %d, k = %d, T = %g, T(rho, u) = %g)", end, k, T, Tu);
+                    if (bMonotonic) CHECK_REL(Tu, T, 1e-9, "T(rho, u) on a monotonic edge column (end %d, k = %d)", end, k);
+                } else {
+                    CHECK(!bMonotonic, "T(rho, u) fell back on a monotonic edge column (end %d, k = %d)", end, k);
+                    nDefect++;
+                }
+            }
+            /* Clearly outside (1e-10 in log rho) still fails. */
+            double rhoOut = rho * (end ? 1.0 + 2.3e-10 : 1.0 - 2.3e-10);
+            CHECK(isSentinel(scvheosPofRhoT(m, rhoOut, T)), "P(rho, T) %s the table accepted (end %d, k = %d)",
+                  end ? "above" : "below", end, k);
+            nTried++;
+            scvheosFinalizeMaterial(m);
+        }
+    }
+    CHECK(nFailed[0] == 0 && nFailed[1] == 0, "edge state at a log bound of 0 rejected for %d (lower end) and %d (upper end) of %d unit pairs",
+          nFailed[0], nFailed[1], nTried / 2);
+    if (nDefect) NOTE("%d T(rho, u) at the edge fell back to T_min (non-monotonic u(T) edge column, table defect)", nDefect);
+    END_TEST();
+}
 
 int main(int argc, char *argv[])
 {
     int iMat = SCVHEOS_HHE_EXT;
     double dKpcUnit = 2.06701e-13;   /* Earth radius */
-    double dMsolUnit = 4.80438e-08;  /* Earth mass */
+    double dMsolUnit = 4.80438e-08;  /* 9.56e25 g, not the Earth mass: density unit 0.3685 g/cc (pkdgrav3 units) */
 
     if (argc > 1) iMat = atoi(argv[1]);
     if (argc > 3) { dKpcUnit = atof(argv[2]); dMsolUnit = atof(argv[3]); }
@@ -698,7 +1115,13 @@ int main(int argc, char *argv[])
     testSoundSpeedTable(m);
     testIsentrope(m);
     testExtrapLimit(m);
+    testUCold(m);
+    testBoundsChecks(m);
+    testReadTableSizeAndPrint(m);
     testFailureContract(m);   /* last: triggers failure messages under EOSLIB_VERBOSE */
+    testUnitPair(iMat);
+    testEdgeCells(m);
+    testLogBoundAtZero(iMat, dKpcUnit, dMsolUnit);
 
     scvheosFinalizeMaterial(m);
 

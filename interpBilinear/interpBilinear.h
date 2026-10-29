@@ -42,13 +42,25 @@
  *   Cell (ix, iy) is the rectangle [x[ix], x[ix+1]] x [y[iy], y[iy+1]],
  *   0 <= ix <= nx-2, 0 <= iy <= ny-2, with local coordinates (u, v) in
  *   [0, 1]^2. Both intervals are CLOSED: x == x[nx-1] gives the last cell
- *   with u == 1. A roundoff tolerance tol, relative to the bound being
- *   tested, accepts and clamps coordinates within tol*|axis[0]| below the
- *   first node and tol*|axis[n-1]| above the last one, so that a state on
- *   the table edge survives a unit-conversion or 10^x <-> log10 round
- *   trip; tol = 0 disables that. The tolerance is deliberately not
- *   absolute: a linear axis may start at 1e-25 and a log axis at -25, and
- *   a bound that is exactly 0 simply gets no tolerance.
+ *   with u == 1. A roundoff tolerance accepts and clamps coordinates within
+ *   a band of
+ *
+ *     tol * |bound| + tolAbs
+ *
+ *   outside the first and the last node, so that a state on the table edge
+ *   survives a unit conversion or a 10^x <-> log10 round trip. The two parts
+ *   model the two kinds of axis:
+ *     - a linear axis (ANEOSmaterial: rho, T) carries a relative roundoff,
+ *       tol relative to the bound and tolAbs = 0; an absolute part would be
+ *       wrong there (a density axis may start at 1e-25);
+ *     - a log axis (scvheos, reos3: log10 rho, log10 T) carries the roundoff
+ *       of log10(10^x), which is absolute (~1e-16) plus relative to |x|, so
+ *       those libraries pass tolAbs > 0 as well. With tol alone a log bound
+ *       at or near 0, which an arbitrary code-unit shift of log rho can
+ *       produce, got no tolerance at all (up to 1.0.3).
+ *   The functions taking one tol use tolAbs = 0; the *Tol variants
+ *   (interpLocateAxisTol, interpLocateTol, interpInvertYTol, interpInvertXTol)
+ *   take both. tol = tolAbs = 0 disables the tolerance.
  *
  *   The interpolant is C0; on a cell boundary the cell to the right/above
  *   is used (the last cell at the upper edge), so derivatives there are
@@ -66,6 +78,43 @@
  *          bScan renamed bFallback: the mode bisects like the strict one and
  *          only scans as a fallback, which the old name suggested otherwise.
  *          No change in behaviour.
+ *   1.0.3  INTERP_ABI_VERSION, the layout version of the public types, so that the
+ *          libraries vendoring this header can detect a copy with another layout in
+ *          the same translation unit (see below). No change in behaviour.
+ *          Edge tolerance band tol*|bound| + tolAbs: new interpLocateAxisTol,
+ *          interpLocateTol, interpInvertYTol and interpInvertXTol with an absolute
+ *          part for log axes (a log bound at 0 got no tolerance). The functions
+ *          with one tol are unchanged (tolAbs = 0); the types and
+ *          INTERP_ABI_VERSION are unchanged. New API: when the version is bumped
+ *          (1.1.0), scvheos and reos3, which call the *Tol variants, must require it.
+ *          interpInvertLine: the check for a non-bracketing segment after the strict
+ *          bisection is gone, and with it INTERP_NONMONOTONIC (-7): it could not fire. The
+ *          strict bisection keeps f_lo <= target <= f_hi on any line, monotonic or not, so it
+ *          always ends on a bracketing segment and returns a root; on a non-monotonic line
+ *          that is the root the bisection lands on (the comments, and the scvheos and reos3
+ *          documentation built on them, said such a line fails). Strict mode: results
+ *          bit-identical. Tolerant mode: a target equal to the first node value returns that
+ *          node at once (k = 0, t = 0). On a monotonic line that is what it gave before, after
+ *          the sign bisection had moved away to n-2 and the O(n) scan found the node; on a
+ *          non-monotonic line the bisection could also end on another root, which is now the
+ *          first node (the lowest-index convention of the tolerant mode). Removing
+ *          INTERP_NONMONOTONIC is an API change.
+ *          interpRelaxedLocate (tolerant mode): the node tolerance scans every node, the last
+ *          one included (k < n, it stopped at k < n-1); a hit on node n-1 returns the end of the
+ *          last segment, (n-2, 1). Node n-1 was covered only by the edge band, edgeTol*|g1 - gt|,
+ *          which is far narrower than nodeTol*|g1| where the last segment is nearly flat, so a
+ *          target within nodeTol of the last node value but outside the band gave
+ *          INTERP_NOT_ATTAINED. Otherwise bit-identical.
+ *   1.0.4  interpInvertLine (tolerant mode): an infinite target gives INTERP_NOT_ATTAINED. The node
+ *          tolerance accepted it at node 0, because |target - f_0| = inf <= nodeTol*inf = inf, so
+ *          ANEOSmaterial located u = +-inf at T_min without a fallback (uncounted, ANEOSIsInTable
+ *          ANEOS_SUCCESS) and rho(P = inf, T) at the first density node. The strict mode already
+ *          returned INTERP_ABOVE/INTERP_BELOW for +-inf. Finite targets bit-identical; the types and
+ *          INTERP_ABI_VERSION are unchanged. testInterpBilinear checks infinite and NaN targets in
+ *          both modes.
+ *          The *Tol variants came with 1.0.3 without the version bump announced there (1.1.0), so
+ *          a 1.0.3 copy may lack them: ANEOSmaterial, scvheos and reos3 require 1.0.4, which has
+ *          them for certain (and ANEOSmaterial needs the fix above). Pull it into all three.
  */
 #ifndef INTERPBILINEAR_HINCLUDED
 #define INTERPBILINEAR_HINCLUDED
@@ -73,10 +122,23 @@
 #include <math.h>
 #include <stddef.h>
 
-#define INTERP_VERSION_TEXT   "1.0.2"
+#define INTERP_VERSION_TEXT   "1.0.4"
 #define INTERP_VERSION_MAJOR  1
 #define INTERP_VERSION_MINOR  0
-#define INTERP_VERSION_PATCH  2
+#define INTERP_VERSION_PATCH  4
+
+/*
+ * Layout version of the public types INTERPGRID, INTERPCELL and INTERPINVERTOPT. Bump it whenever
+ * one of them changes (members, order or types), independently of the version above.
+ *
+ * Several libraries vendor this header (ANEOSmaterial, scvheos, reos3, each as a git subtree) and
+ * embed INTERPGRID in their material structs. EOSlib includes all their headers in one translation
+ * unit, where the include guard lets only the first copy in: every library header therefore
+ * checks that the copy in effect has the minimum version it needs and exactly the layout it was
+ * written for (its <LIB>_INTERP_ABI_VERSION), and stops the compilation otherwise. A copy with a
+ * different layout would make EOSlib and the library disagree on the struct silently.
+ */
+#define INTERP_ABI_VERSION 1
 
 /*
  * Status codes. Everything that is not INTERP_SUCCESS is negative.
@@ -89,8 +151,8 @@
 #define INTERP_BELOW         -5   /* interpLocateAxis: below the first node;
                                      interpInvertLine (strict): target below the first node value */
 #define INTERP_ABOVE         -6   /* ... above the last one */
-#define INTERP_NONMONOTONIC  -7   /* interpInvertLine (strict): the located segment does not bracket the target */
-#define INTERP_NOT_ATTAINED  -8   /* interpInvertLine (scan): no segment attains the target */
+                                  /* -7 unused (was INTERP_NONMONOTONIC, never returned) */
+#define INTERP_NOT_ATTAINED  -8   /* interpInvertLine (tolerant): no segment attains the target */
 #define INTERP_INVALID       -9   /* a NaN input */
 
 #define INTERP_ALONG_X 0   /* vary ix at fixed (iy, v) */
@@ -113,23 +175,29 @@ typedef struct interpCell {
 /*
  * Options of interpInvertLine.
  *
- * Both modes start with a bisection on the node index, O(log n); they
- * differ in what happens when the bisection cannot bracket the target.
+ * Both modes search by bisection on the node index, O(log n). A bisection
+ * whose end nodes bracket the target keeps a bracketing segment at every
+ * step, on any line, monotonic or not, so it always ends on a root (on a
+ * non-monotonic line on the one it bisects onto, which need not be the
+ * lowest). The modes differ in what happens when the end nodes do not
+ * bracket the target, which on a non-monotonic line does not mean that the
+ * target is not attained (a dip below f_0, a rise above f_n-1):
  *
- *   bFallback 0: strict mode. The line is assumed to increase monotonically
- *                and a monotone bisection finds the segment. A target
- *                outside [f_0, f_n-1] fails with INTERP_BELOW/INTERP_ABOVE,
- *                a segment that does not bracket the target (which only
- *                happens on a non-monotonic line) with INTERP_NONMONOTONIC.
- *             1: tolerant mode. If the end nodes bracket the target, a sign
- *                bisection finds a bracketing segment on any line, monotonic
- *                or not, and that is the whole search in the normal case.
- *                Only if the end nodes do not bracket the target, or the
- *                bisection ends in a non-bracketing segment (both need a
- *                non-monotonic line), does it fall back to a linear scan for
- *                the lowest-index bracketing segment, and if none brackets
- *                the target exactly, to the edge and node tolerances below,
- *                before INTERP_NOT_ATTAINED.
+ *   bFallback 0: strict mode, for lines that increase in the normal case.
+ *                The end nodes must bracket the target, f_0 <= target <=
+ *                f_n-1: a target below fails with INTERP_BELOW, above with
+ *                INTERP_ABOVE, also where a non-monotonic line attains it
+ *                inside. A target between them always gives a root.
+ *             1: tolerant mode, for lines of either direction and for
+ *                defective tables. If the end nodes bracket the target, a
+ *                sign bisection finds a root, and that is the whole search
+ *                in the normal case; a target equal to f_0 is that node.
+ *                Only if the end nodes do not bracket the target (which
+ *                needs a non-monotonic line, or a target off the line) does
+ *                it fall back to a linear scan for the lowest-index
+ *                bracketing segment, and if none brackets the target
+ *                exactly, to the edge and node tolerances below, before
+ *                INTERP_NOT_ATTAINED.
  *   valTol    relative roundoff tolerance on the target at the line ends: a
  *             target within valTol*(1 + |target|) outside [f_0, f_n-1] is
  *             clamped onto the nearer end instead of failing (both modes).
@@ -197,20 +265,21 @@ static inline int interpFindIndex(double x, const double *axis, int n)
 
 /*
  * Locate x on the closed interval [axis[0], axis[n-1]] with the roundoff
- * tolerance tol relative to each bound (see the header comment). Returns
- * INTERP_SUCCESS with the segment index *pi (0 <= i <= n-2) and the local
- * coordinate *pw in [0, 1]; INTERP_BELOW or INTERP_ABOVE if x is outside by
- * more than the tolerance; INTERP_INVALID for a NaN. Outputs are untouched
+ * tolerance band tol*|bound| + tolAbs at each bound (see the header comment).
+ * Returns INTERP_SUCCESS with the segment index *pi (0 <= i <= n-2) and the
+ * local coordinate *pw in [0, 1]; INTERP_BELOW or INTERP_ABOVE if x is outside
+ * by more than the tolerance; INTERP_INVALID for a NaN. Outputs are untouched
  * on failure.
  */
-static inline int interpLocateAxis(const double *axis, int n, double x, double tol, int *pi, double *pw)
+static inline int interpLocateAxisTol(const double *axis, int n, double x, double tol, double tolAbs,
+                                      int *pi, double *pw)
 {
     const double lo = axis[0], hi = axis[n - 1];
     int i;
 
     if (x != x) return INTERP_INVALID;
-    if (!(x >= lo)) { if (x >= lo - tol * fabs(lo)) x = lo; else return INTERP_BELOW; }
-    if (!(x <= hi)) { if (x <= hi + tol * fabs(hi)) x = hi; else return INTERP_ABOVE; }
+    if (!(x >= lo)) { if (x >= lo - (tol * fabs(lo) + tolAbs)) x = lo; else return INTERP_BELOW; }
+    if (!(x <= hi)) { if (x <= hi + (tol * fabs(hi) + tolAbs)) x = hi; else return INTERP_ABOVE; }
 
     i = interpFindIndex(x, axis, n);
     *pi = i;
@@ -218,23 +287,29 @@ static inline int interpLocateAxis(const double *axis, int n, double x, double t
     return INTERP_SUCCESS;
 }
 
+/* Same with a tolerance relative to the bound only (linear axes). */
+static inline int interpLocateAxis(const double *axis, int n, double x, double tol, int *pi, double *pw)
+{
+    return interpLocateAxisTol(axis, n, x, tol, 0.0, pi, pw);
+}
+
 /*
- * Locate (x, y) on the grid. Returns INTERP_SUCCESS and fills *cell, or one
- * of INTERP_OUTSIDE_XMIN/XMAX/YMIN/YMAX (x is checked first), or
- * INTERP_INVALID for a NaN.
+ * Locate (x, y) on the grid with the edge tolerance band tol*|bound| + tolAbs.
+ * Returns INTERP_SUCCESS and fills *cell, or one of INTERP_OUTSIDE_XMIN/XMAX/
+ * YMIN/YMAX (x is checked first), or INTERP_INVALID for a NaN.
  */
-static inline int interpLocate(const INTERPGRID *g, double x, double y, double tol, INTERPCELL *cell)
+static inline int interpLocateTol(const INTERPGRID *g, double x, double y, double tol, double tolAbs, INTERPCELL *cell)
 {
     int iret;
     int ix, iy;
     double u, v;
 
-    iret = interpLocateAxis(g->x, g->nx, x, tol, &ix, &u);
+    iret = interpLocateAxisTol(g->x, g->nx, x, tol, tolAbs, &ix, &u);
     if (iret == INTERP_BELOW) return INTERP_OUTSIDE_XMIN;
     if (iret == INTERP_ABOVE) return INTERP_OUTSIDE_XMAX;
     if (iret != INTERP_SUCCESS) return iret;
 
-    iret = interpLocateAxis(g->y, g->ny, y, tol, &iy, &v);
+    iret = interpLocateAxisTol(g->y, g->ny, y, tol, tolAbs, &iy, &v);
     if (iret == INTERP_BELOW) return INTERP_OUTSIDE_YMIN;
     if (iret == INTERP_ABOVE) return INTERP_OUTSIDE_YMAX;
     if (iret != INTERP_SUCCESS) return iret;
@@ -244,6 +319,12 @@ static inline int interpLocate(const INTERPGRID *g, double x, double y, double t
     cell->u = u;
     cell->v = v;
     return INTERP_SUCCESS;
+}
+
+/* Same with a tolerance relative to the bounds only (linear axes). */
+static inline int interpLocate(const INTERPGRID *g, double x, double y, double tol, INTERPCELL *cell)
+{
+    return interpLocateTol(g, x, y, tol, 0.0, cell);
 }
 
 /* -------------------------------------------------------------- evaluate */
@@ -422,9 +503,19 @@ static inline int interpRelaxedLocate(const INTERPGRID *g, const double *z, int 
     if ((zbelow <= target && target <= g0) || (g0 <= target && target <= zbelow)) { *pk = 0;     *pt = 0.0; return 1; }
     if ((g1 <= target && target <= zabove) || (zabove <= target && target <= g1)) { *pk = n - 2; *pt = 1.0; return 1; }
     if (opt->nodeTol > 0.0) {
-        for (k = 0; k < n - 1; k++) {
+        /*
+         * Every node, the last one included (the scan stopped at n-2). The edge band above does
+         * not cover node n-1 where the last segment is nearly flat: its width edgeTol*|g1 - gt|
+         * can be far below nodeTol*|g1|. (On an exactly flat last segment node n-2 has the same
+         * value and is found first.) Node n-1 is the end of the last segment, (k, t) = (n-2, 1).
+         */
+        for (k = 0; k < n; k++) {
             double gk = interpLineValue(g, z, axis, fixed, w, k);
-            if (fabs(target - gk) <= opt->nodeTol * fmax(fabs(target), fabs(gk))) { *pk = k; *pt = 0.0; return 1; }
+            if (fabs(target - gk) <= opt->nodeTol * fmax(fabs(target), fabs(gk))) {
+                if (k < n - 1) { *pk = k;     *pt = 0.0; }
+                else           { *pk = n - 2; *pt = 1.0; }
+                return 1;
+            }
         }
     }
     return 0;
@@ -439,9 +530,15 @@ static inline int interpRelaxedLocate(const INTERPGRID *g, const double *z, int 
  * segment (f_k == f_k+1 == target) t = 0, the lower node. When several roots
  * exist the result depends on the path: the bisection returns the root it
  * bisects onto (normally the one in the monotonic bulk of the line), the
- * scan fallback of the tolerant mode the lowest-index one.
+ * scan fallback of the tolerant mode the lowest-index one. Neither mode
+ * detects a non-monotonic line (that would take O(n) per call); the libraries
+ * report such lines of their tables once, at initialisation.
  *
- * Returns INTERP_SUCCESS with *pk, *pt; INTERP_INVALID for a NaN target.
+ * Returns INTERP_SUCCESS with *pk, *pt; INTERP_BELOW/INTERP_ABOVE (strict) or
+ * INTERP_NOT_ATTAINED (tolerant) if the target is not found, also for an
+ * infinite target (+inf above, -inf below the line in strict mode);
+ * INTERP_INVALID for a NaN target. The bracket invariant needs finite line
+ * values, which the libraries guarantee by validating their tables at load.
  */
 static inline int interpInvertLine(const INTERPGRID *g, const double *z, int axis, int fixed, double w,
                                    double target, const INTERPINVERTOPT *opt, int *pk, double *pt)
@@ -467,7 +564,10 @@ static inline int interpInvertLine(const INTERPGRID *g, const double *z, int axi
     }
 
     if (!opt->bFallback) {
-        /* Strict mode: f increasing in k, bisection on the node index. */
+        /*
+         * Strict mode: the end nodes must bracket the target. The bisection keeps
+         * flo <= target < fhi (or target == fhi == g1), so it ends on a root.
+         */
         if (!(target >= g0)) return INTERP_BELOW;
         if (!(target <= g1)) return INTERP_ABOVE;
         while (hi - lo > 1) {
@@ -476,20 +576,31 @@ static inline int interpInvertLine(const INTERPGRID *g, const double *z, int axi
             if (fm <= target) { lo = mid; flo = fm; }
             else              { hi = mid; fhi = fm; }
         }
-        if (!(flo <= target) || !(target <= fhi)) return INTERP_NONMONOTONIC;
     } else {
-        int bracketed = 0;
-        if ((g0 < target) != (g1 < target) || g0 == target || g1 == target) {
-            /* End nodes bracket the target: sign bisection, valid on any line. */
+        /*
+         * An infinite target is attained by no segment of a finite line. It must not reach the
+         * node tolerance below, where |target - f_k| = inf <= nodeTol*inf = inf would accept it.
+         */
+        if (isinf(target)) return INTERP_NOT_ATTAINED;
+        /*
+         * The first node itself: the lowest-index root. The sign bisection below
+         * needs flo != target and would move away from it (to n-2, then the scan).
+         */
+        if (g0 == target) { *pk = 0; *pt = 0.0; return INTERP_SUCCESS; }
+        if ((g0 < target) != (g1 < target) || g1 == target) {
+            /*
+             * End nodes bracket the target: sign bisection, valid on any line. flo
+             * stays strictly on the side of g0, fhi on the other side or at the
+             * target, so the segment [lo, hi] brackets the target at the end.
+             */
             while (hi - lo > 1) {
                 int mid = lo + (hi - lo) / 2;
                 double fm = interpLineValue(g, z, axis, fixed, w, mid);
                 if ((fm < target) == (flo < target) && fm != target) { lo = mid; flo = fm; }
                 else                                                 { hi = mid; fhi = fm; }
             }
-            bracketed = (flo <= target && target <= fhi) || (fhi <= target && target <= flo);
-        }
-        if (!bracketed) {
+        } else {
+            /* Not bracketed by the end nodes: lowest-index bracketing segment, then the tolerances. */
             if (!interpScanLine(g, z, axis, fixed, w, n, target, &lo, &flo, &fhi)) {
                 if (interpRelaxedLocate(g, z, axis, fixed, w, n, target, opt, pk, pt)) return INTERP_SUCCESS;
                 return INTERP_NOT_ATTAINED;
@@ -510,20 +621,21 @@ static inline int interpInvertLine(const INTERPGRID *g, const double *z, int axi
 }
 
 /*
- * Solve z(x, y) = target for y at given x. Locates x (tolerance tol), then
+ * Solve z(x, y) = target for y at given x. Locates x (tolerance band
+ * tol*|bound| + tolAbs), then
  * inverts the line along y. On success fills *cell (so that other tables
  * can be evaluated in the same cell without a second search) and *py.
  *
  * Returns INTERP_OUTSIDE_XMIN/XMAX, INTERP_INVALID, or the status of
  * interpInvertLine.
  */
-static inline int interpInvertY(const INTERPGRID *g, const double *z, double x, double target, double tol,
-                                const INTERPINVERTOPT *opt, INTERPCELL *cell, double *py)
+static inline int interpInvertYTol(const INTERPGRID *g, const double *z, double x, double target, double tol,
+                                   double tolAbs, const INTERPINVERTOPT *opt, INTERPCELL *cell, double *py)
 {
     int ix, iy, iret;
     double u, v;
 
-    iret = interpLocateAxis(g->x, g->nx, x, tol, &ix, &u);
+    iret = interpLocateAxisTol(g->x, g->nx, x, tol, tolAbs, &ix, &u);
     if (iret == INTERP_BELOW) return INTERP_OUTSIDE_XMIN;
     if (iret == INTERP_ABOVE) return INTERP_OUTSIDE_XMAX;
     if (iret != INTERP_SUCCESS) return iret;
@@ -536,17 +648,24 @@ static inline int interpInvertY(const INTERPGRID *g, const double *z, double x, 
     return INTERP_SUCCESS;
 }
 
+/* Same with a tolerance relative to the bounds only (linear axes). */
+static inline int interpInvertY(const INTERPGRID *g, const double *z, double x, double target, double tol,
+                                const INTERPINVERTOPT *opt, INTERPCELL *cell, double *py)
+{
+    return interpInvertYTol(g, z, x, target, tol, 0.0, opt, cell, py);
+}
+
 /*
  * Solve z(x, y) = target for x at given y. Mirror image of interpInvertY;
  * returns INTERP_OUTSIDE_YMIN/YMAX if y is outside the grid.
  */
-static inline int interpInvertX(const INTERPGRID *g, const double *z, double y, double target, double tol,
-                                const INTERPINVERTOPT *opt, INTERPCELL *cell, double *px)
+static inline int interpInvertXTol(const INTERPGRID *g, const double *z, double y, double target, double tol,
+                                   double tolAbs, const INTERPINVERTOPT *opt, INTERPCELL *cell, double *px)
 {
     int ix, iy, iret;
     double u, v;
 
-    iret = interpLocateAxis(g->y, g->ny, y, tol, &iy, &v);
+    iret = interpLocateAxisTol(g->y, g->ny, y, tol, tolAbs, &iy, &v);
     if (iret == INTERP_BELOW) return INTERP_OUTSIDE_YMIN;
     if (iret == INTERP_ABOVE) return INTERP_OUTSIDE_YMAX;
     if (iret != INTERP_SUCCESS) return iret;
@@ -557,6 +676,13 @@ static inline int interpInvertX(const INTERPGRID *g, const double *z, double y, 
     cell->ix = ix; cell->iy = iy; cell->u = u; cell->v = v;
     *px = interpLineCoord(g, INTERP_ALONG_X, ix, u);
     return INTERP_SUCCESS;
+}
+
+/* Same with a tolerance relative to the bounds only (linear axes). */
+static inline int interpInvertX(const INTERPGRID *g, const double *z, double y, double target, double tol,
+                                const INTERPINVERTOPT *opt, INTERPCELL *cell, double *px)
+{
+    return interpInvertXTol(g, z, y, target, tol, 0.0, opt, cell, px);
 }
 
 /* ------------------------------------------------------- node derivatives */
